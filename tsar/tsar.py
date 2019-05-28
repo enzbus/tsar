@@ -1,3 +1,19 @@
+"""
+   Copyright 2019 Enzo Busseti
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+"""
+
 import numpy as np
 import pandas as pd
 import numba as nb
@@ -97,8 +113,9 @@ class HarmonicBaseline:
                                              self.harmonics))
         print(self.periods)
         self._train_baseline(data.dropna())
+        self.name = data.name
         self._baseline = self._predict_baseline(data.index)
-        self._baseline.name = data.name
+        #self._baseline.name = data.name
 
     def _train_baseline(self, train):
 
@@ -113,7 +130,7 @@ class HarmonicBaseline:
         Xte = featurize_index_for_baseline(index_to_seconds(index),
                                            self.periods)
         return pd.Series(data=predict_with_baseline(Xte, self.baseline_params),
-                         index=index)
+                         index=index, name=self.name)
 
 
 class Model:
@@ -140,9 +157,61 @@ class Model:
         self.baseline_per_column_options =\
             baseline_per_column_options
         self._fit_baselines()
+        self._fit_ranges(self)
         self._residuals_stds = self.residuals.std()
         self._normalized_residuals = self.residuals / self._residuals_stds
         self._fit_AR()
+
+    def _fit_ranges(self):
+        self._min = model.data.min()
+        self._max = mode.data.max()
+
+    def _clip_prediction(self, prediction):
+        return prediction.clip(self._min, self._max, axis=1)
+
+    @property
+    def baseline(self):
+        return pd.concat(
+            [self._baselines[col]._baseline
+             for col in self._columns], axis=1)
+
+    @property
+    def residuals(self):
+        return self.data - self.baseline
+
+    def predict(self, last_data, number_scenarios=0):
+        print('last_data', last_data.shape)
+        print(last_data.index)
+        if len(last_data) > self.lag:
+            raise ValueError('Only provide the last data.')
+        if not last_data.index.freq == self.frequency:
+            raise ValueError('Provided data has wrong frequency.')
+        len_chunk = len(last_data)
+        for i in range(1, 1 + self.lag - len(last_data)):
+            #print('i = ', i)
+            t = last_data.index[len_chunk - 1] + i * self.frequency
+            #print('adding row', t)
+            last_data.loc[t] = np.nan
+        print('last_data', last_data.shape)
+        baseline = self.predict_baseline(last_data)
+        print('baseline', baseline.shape)
+        residuals = last_data - baseline
+        normalized_residuals = residuals / self._residuals_stds
+        normalized_residuals_list = self._predict_normalized_residual_AR(
+            normalized_residuals, number_scenarios)
+        all_results = []
+        for normalized_residuals in normalized_residuals_list:
+            residuals = normalized_residuals * self._residuals_stds
+            all_results.append(
+                self._clip_prediction(residuals + baseline))
+            if not number_scenarios:
+                return all_results[-1]
+        return all_results
+
+    def predict_baseline(self, data):
+        return pd.concat(
+            [self._baselines[col]._predict_baseline(data.index)
+             for col in self._columns], axis=1)
 
     def _fit_baselines(self):
         self._baselines = {}
@@ -173,7 +242,7 @@ class Model:
 
     def _predict_concatenated_AR(self,
                                  concatenated,
-                                 return_sigma=False):
+                                 number_scenarios=0):
 
         # https://en.wikipedia.org/wiki/Schur_complement
         # (Applications_to_probability_theory_and_statistics)
@@ -188,13 +257,22 @@ class Model:
         expected_x = B @ np.linalg.solve(C, y)
         concatenated[null_mask] = expected_x
 
-        if return_sigma:
+        if number_scenarios:
+            print('computing conditional covariance')
             Sigma_x = A - B @ np.linalg.inv(C) @ B.T
-            return concatenated, null_mask, Sigma_x
+            samples = np.random.multivariate_normal(
+                expected_x, Sigma_x, number_scenarios)
+            sample_concatenations = []
+            for sample in samples:
+                concatenated[null_mask] = sample
+                sample_concatenations.append(
+                    pd.Series(concatenated, copy=True))
+            return sample_concatenations
 
-        return concatenated
+        return [concatenated]
 
-    def _predict_normalized_residual_AR(self, chunk):
+    def _predict_normalized_residual_AR(self, chunk,
+                                        number_scenarios=0):
         #chunk = model._normalized_residuals.iloc[-10:]
         assert len(chunk) == self.lag
         chunk_index = chunk.index
@@ -205,48 +283,15 @@ class Model:
                 for i in range(self.lag)
             ])
 
-        filled = self._predict_concatenated_AR(concatenated)
-        chunk_filled = pd.concat(
-            [filled.iloc[len(self._columns) * i:len(self._columns) * (i + 1)]
-                for i in range(self.lag)], axis=1).T
-        chunk_filled.index = chunk_index
-        return chunk_filled
+        filled_list = self._predict_concatenated_AR(concatenated,
+                                                    number_scenarios)
+        chunk_filled_list = []
 
-    @property
-    def baseline(self):
-        return pd.concat(
-            [self._baselines[col]._baseline
-             for col in self._columns], axis=1)
+        for filled in filled_list:
+            chunk_filled = pd.concat(
+                [filled.iloc[len(self._columns) * i:len(self._columns) * (i + 1)]
+                    for i in range(self.lag)], axis=1).T
+            chunk_filled.index = chunk_index
+            chunk_filled_list.append(chunk_filled)
 
-    @property
-    def residuals(self):
-        return self.data - self.baseline
-
-    def _train_matrix_ar(self, train):
-        train_residual = train - self._predict_baseline(train.index)
-        Xtr, ytr = featurize_residual(train_residual, self.M, self.T)
-        self.residuals_params = fit_residual(Xtr, ytr)
-
-    # def train(self, train):
-    #     if not isinstance(train, pd.DataFrame):
-    #         raise ValueError(
-    #             'Train data must be a pandas DataFrame')
-    #     if not isinstance(dati.index, pd.DatetimeIndex):
-    #         raise ValueError(
-    #             'Train data must be indexed by a pandas DatetimeIndex.')
-    #     if train.index.freq is None:
-    #         raise ValueError('Train data index must have a frequency. ' +
-    #                          'Try using the pandas.DataFrame.asfreq method.')
-    #     self.frequency = train.index.freq
-    #     if train.isnull().sum().sum():
-    #         raise ValueError('Train data must not have NaNs')
-    #     self._train_baseline(train)
-    #     self._train_matrix_ar(train)
-
-    # def _predict_baseline(self, index):
-    #     Xte = featurize_index_for_baseline(index_to_seconds(index),
-    #                                        self.periods)
-    #     return pd.Series(data=predict_with_baseline(Xte, self.baseline_params),
-    #                      index=index)
-
-    # def predict(self, data):
+        return chunk_filled_list
