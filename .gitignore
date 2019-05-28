@@ -1,0 +1,13 @@
+# notebook
+.ipynb_checkpoints
+
+# python
+*.pyc
+*.egg-info
+.eggs
+
+# sphinx
+_build
+
+#OSX
+*.DS_Store
