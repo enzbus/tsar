@@ -157,14 +157,14 @@ class Model:
         self.baseline_per_column_options =\
             baseline_per_column_options
         self._fit_baselines()
-        self._fit_ranges(self)
+        self._fit_ranges()
         self._residuals_stds = self.residuals.std()
         self._normalized_residuals = self.residuals / self._residuals_stds
         self._fit_AR()
 
     def _fit_ranges(self):
-        self._min = model.data.min()
-        self._max = mode.data.max()
+        self._min = self.data.min()
+        self._max = self.data.max()
 
     def _clip_prediction(self, prediction):
         return prediction.clip(self._min, self._max, axis=1)
