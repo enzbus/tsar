@@ -16,12 +16,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import numpy as np
-import pandas as pd
+#import pandas as pd
 import numba as nb
 import logging
 logger = logging.getLogger(__name__)
 
-__all__ = ['HarmonicBaseline', 'baseline_autotune', 'AutotunedBaseline']
+__all__ = ['HarmonicBaseline']  # , 'baseline_autotune', 'AutotunedBaseline']
 
 
 @nb.jit(nopython=True)
@@ -90,26 +90,27 @@ def make_periods(daily_harmonics,
 
 class HarmonicBaseline:
 
-    def __init__(self, data,
+    def __init__(self,
+                 train,
                  daily_harmonics=4,
                  weekly_harmonics=0,
                  annual_harmonics=4,
                  trend=False):
-        if not isinstance(data, pd.Series):
-            raise ValueError(
-                'Train data must be a pandas Series')
+        # if not isinstance(data, pd.Series):
+        #     raise ValueError(
+        #         'Train data must be a pandas Series')
         self.daily_harmonics = daily_harmonics
         self.weekly_harmonics = weekly_harmonics
         self.annual_harmonics = annual_harmonics
         # self.harmonics = harmonics
         self.trend = trend
-        self.periods = np.array(make_periods(self.daily_harmonics,
-                                             self.weekly_harmonics,
-                                             self.annual_harmonics))
+        self.periods = make_periods(self.daily_harmonics,
+                                    self.weekly_harmonics,
+                                    self.annual_harmonics)
         # print(self.periods)
-        self.name = data.name
-        self._train_baseline(data.dropna())
-        self._baseline = self._predict_baseline(data.index)
+        # self.name = data.name
+        self._train_baseline(train)
+        self._baseline = self._predict_baseline(train.index)
 
     def _train_baseline(self, train):
 
@@ -125,67 +126,4 @@ class HarmonicBaseline:
         Xte = featurize_index_for_baseline(index_to_seconds(index),
                                            self.periods,
                                            trend=self.trend)
-        return pd.Series(data=predict_with_baseline(Xte, self.baseline_params),
-                         index=index, name=self.name)
-
-
-def baseline_autotune(train, test, min_harmonics=3):
-
-    results_test_RMSE = {}
-
-    BOUND_WEEKLY = 6
-
-    max_daily = min_harmonics
-    max_weekly = min_harmonics
-    max_annual = min_harmonics
-
-    while True:
-
-        for daily_harmonics in range(max_daily):
-            for weekly_harmonics in range(max_weekly):
-                for annual_harmonics in range(max_annual):
-                    for trend in [False, True]:
-                        if (daily_harmonics, weekly_harmonics,
-                                annual_harmonics, trend) \
-                                in results_test_RMSE:
-                            continue
-                        baseline = HarmonicBaseline(train,
-                                                    daily_harmonics,
-                                                    weekly_harmonics,
-                                                    annual_harmonics,
-                                                    trend)
-
-                        # print('params:, ', daily_harmonics, weekly_harmonics,
-                        #      annual_harmonics, trend)
-                        test_RMSE = (test - baseline._predict_baseline(
-                            test.index)).std()
-                        # print('test_RMSE:, ', test_RMSE)
-                        results_test_RMSE[(daily_harmonics, weekly_harmonics,
-                                           annual_harmonics, trend)] = test_RMSE
-
-        current_best = min(results_test_RMSE, key=results_test_RMSE.get)
-
-        current_best_daily = current_best[0]
-        current_best_weekly = current_best[1]
-        current_best_annual = current_best[2]
-
-        if (current_best_daily < max_daily - 1) and \
-           (current_best_weekly < max_weekly - 1) and \
-                (current_best_annual < max_annual - 1):
-            print('tried %d baseline parameter combinations' %
-                  len(results_test_RMSE))
-            print('optimal baseline parameters: ', current_best)
-            print('test RMSE: ', results_test_RMSE[current_best])
-            print('test std. dev.: ', test.std())
-            print()
-            return current_best
-
-        max_daily = max(max_daily, current_best_daily + 2)
-        max_weekly = max(max_weekly, current_best_weekly + 2)
-        max_annual = max(max_daily, current_best_annual + 2)
-
-
-def AutotunedBaseline(train, test):
-    print('autotuning baseline for column %s' % train.name)
-    params = baseline_autotune(train, test)
-    return HarmonicBaseline(train, *params)
+        return predict_with_baseline(Xte, self.baseline_params)

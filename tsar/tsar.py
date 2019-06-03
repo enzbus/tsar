@@ -19,119 +19,13 @@ import numpy as np
 import pandas as pd
 import numba as nb
 import logging
+from .baseline import HarmonicBaseline
+from .autotune import AutotunedBaseline, Autotune_AutoRegressive
+from .autoregressive import AutoRegressive  # , Autotune_AutoRegressive
+
 logger = logging.getLogger(__name__)
 
 __all__ = ['Model']
-
-
-@nb.jit(nopython=True)
-def featurize_index_for_baseline(seconds, periods):
-    X = np.zeros((len(seconds), 1 + 2 * len(periods)))
-    for i, period in enumerate(periods):  # in seconds
-        X[:, 2 * i] = np.sin(2 * np.pi * seconds / period)
-        X[:, 2 * i + 1] = np.cos(2 * np.pi * seconds / period)
-    X[:, -1] = np.ones(len(seconds))
-    return X
-
-
-@nb.jit(nopython=True)
-def fit_seasonal_baseline(X, y):
-    return np.linalg.solve(X.T @ X, X.T @ y)
-
-
-@nb.jit(nopython=True)
-def predict_with_baseline(X, parameters):
-    return X @ parameters
-
-
-def index_to_seconds(index):
-    return np.array(index.astype(np.int64) / 1E9)
-
-
-@nb.jit(nopython=True)
-def make_periods(daily, weekly, annual, harmonics):
-    print(daily, weekly, annual)
-    PERIODS = np.empty(harmonics * (annual + daily + weekly))
-    base_periods = (24 * 3600.,  # daily
-                    24 * 7 * 3600,  # weekly
-                    8766 * 3600)  # annual
-    i = 0
-    if daily:
-        PERIODS[i * harmonics : (i + 1) * harmonics] = \
-            base_periods[0] / np.arange(1, harmonics + 1)
-        i += 1
-    if weekly:
-        PERIODS[i * harmonics : (i + 1) * harmonics] = \
-            base_periods[1] / np.arange(1, harmonics + 1)
-        i += 1
-    if annual:
-        PERIODS[i * harmonics : (i + 1) * harmonics] = \
-            base_periods[2] / np.arange(1, harmonics + 1)
-        i += 1
-
-    return PERIODS
-
-
-@nb.jit()
-def featurize_residual(obs, M, L):
-    X = np.zeros((len(obs) - M - L + 1, M))
-    for i in range(M):
-        X[:, i] = obs[M - i - 1:-L - i]
-
-    y = np.zeros((len(obs) - M - L + 1, L))
-
-    for i in range(L):
-        y[:, i] = obs[M + i:len(obs) + 1 - L + i]
-
-    return X, y
-
-
-def fit_residual(X, y):
-    M, L = X.shape[1], y.shape[1]
-    pinv = np.linalg.inv(X.T @ X) @ X.T
-    params = np.zeros((M, L))
-    params = pinv @ y
-    return params
-
-
-class HarmonicBaseline:
-
-    def __init__(self, data,
-                 daily=True,
-                 weekly=False,
-                 annual=True,
-                 harmonics=4):
-        if not isinstance(data, pd.Series):
-            raise ValueError(
-                'Train data must be a pandas Series')
-        self.daily = daily
-        self.weekly = weekly
-        self.annual = annual
-        self.harmonics = harmonics
-        self.periods = np.array(make_periods(self.daily,
-                                             self.weekly,
-                                             self.annual,
-                                             self.harmonics))
-        print(self.periods)
-        self._train_baseline(data.dropna())
-        self.name = data.name
-        self._baseline = self._predict_baseline(data.index)
-        #self._baseline.name = data.name
-
-    def _train_baseline(self, train):
-
-        Xtr = featurize_index_for_baseline(index_to_seconds(train.index),
-                                           self.periods)
-        ytr = train.values
-        baseline_params = fit_seasonal_baseline(Xtr, ytr)
-        print(baseline_params)
-        self.baseline_params = baseline_params
-
-    def _predict_baseline(self, index):
-        Xte = featurize_index_for_baseline(index_to_seconds(index),
-                                           self.periods)
-        return pd.Series(data=predict_with_baseline(Xte, self.baseline_params),
-                         index=index, name=self.name)
 
 
 class Model:
@@ -139,8 +33,8 @@ class Model:
     def __init__(
             self,
             data,
-            baseline_per_column_options={},
-            lag=10):
+            # baseline_per_column_options={},
+            future_lag):
 
         if not isinstance(data, pd.DataFrame):
             raise ValueError(
@@ -153,48 +47,65 @@ class Model:
                              'Try using the pandas.DataFrame.asfreq method.')
         self.frequency = data.index.freq
         self._columns = data.columns
-        self.lag = lag
+        self.future_lag = future_lag
         self.data = data
-        self.baseline_per_column_options =\
-            baseline_per_column_options
+
+        self.train = data.iloc[:-len(data) // 3]
+        self.test = data.iloc[-len(data) // 3:]
+        # prilen(train), len(test)
+
+        # self.baseline_per_column_options =\
+        #     baseline_per_column_options
+
         self._fit_baselines()
         self._fit_ranges()
-        self._residuals_stds = self.residuals.std()
-        self._normalized_residuals = self.residuals / self._residuals_stds
+        self._residuals_stds = self._train_residuals.std()
+        self._train_normalized_residuals = self._train_residuals / self._residuals_stds
+        self._test_normalized_residuals = self._test_residuals / self._residuals_stds
         self._fit_AR()
 
     def _fit_ranges(self):
-        self._min = self.data.min()
-        self._max = self.data.max()
+        self._min = self.train.min()
+        self._max = self.train.max()
 
     def _clip_prediction(self, prediction):
         return prediction.clip(self._min, self._max, axis=1)
 
-    @property
-    def baseline(self):
-        return pd.concat(
-            [self._baselines[col]._baseline
-             for col in self._columns], axis=1)
+    # @property
+    # def _train_baseline(self):
+    #     return pd.concat(
+    #         [pd.Series(self._baselines[col]._baseline,
+    #             index=for col in self._columns], axis=1)
+
+    # @property
+    # def _test_baseline(self):
+    #     return pd.concat(
+    #         [self._baselines[col]._predict_baseline(self.test.index)
+    #          for col in self._columns], axis=1)
 
     @property
-    def residuals(self):
-        return self.data - self.baseline
+    def _train_residuals(self):
+        return self.train - self.predict_baseline(self.data.index)
+
+    @property
+    def _test_residuals(self):
+        return self.test - self.predict_baseline(self.test.index)
 
     def predict(self, last_data, number_scenarios=0):
         print('last_data', last_data.shape)
-        print(last_data.index)
+        # print(last_data.index)
         if len(last_data) > self.lag:
             raise ValueError('Only provide the last data.')
         if not last_data.index.freq == self.frequency:
             raise ValueError('Provided data has wrong frequency.')
         len_chunk = len(last_data)
         for i in range(1, 1 + self.lag - len(last_data)):
-            #print('i = ', i)
+            # print('i = ', i)
             t = last_data.index[len_chunk - 1] + i * self.frequency
-            #print('adding row', t)
+            # print('adding row', t)
             last_data.loc[t] = np.nan
         print('last_data', last_data.shape)
-        baseline = self.predict_baseline(last_data)
+        baseline = self.predict_baseline(last_data.index)
         print('baseline', baseline.shape)
         residuals = last_data - baseline
         normalized_residuals = residuals / self._residuals_stds
@@ -209,37 +120,52 @@ class Model:
                 return all_results[-1]
         return all_results
 
-    def predict_baseline(self, data):
+    def predict_baseline(self, index):
         return pd.concat(
-            [self._baselines[col]._predict_baseline(data.index)
+            [pd.Series(
+                self._baselines[col]._predict_baseline(index),
+                index=index, name=col)
              for col in self._columns], axis=1)
 
     def _fit_baselines(self):
         self._baselines = {}
         for column in self._columns:
-            if column in self.baseline_per_column_options:
-                self._baselines[column] = HarmonicBaseline(
-                    self.data[column],
-                    **self.baseline_per_column_options[column])
-            else:
-                self._baselines[column] = HarmonicBaseline(
-                    self.data[column])
+            # if column in self.baseline_per_column_options:
+            #     self._baselines[column] = HarmonicBaseline(
+            #         self.data[column],
+            #         **self.baseline_per_column_options[column])
+            # else:
+            self._baselines[column] = AutotunedBaseline(
+                self.train[column],
+                self.test[column])
+
+    @property
+    def Sigma(self):
+        return self.ar_model.Sigma
+
+    @property
+    def lag(self):
+        return self.ar_model.lag
 
     def _fit_AR(self):
-        print('computing lagged covariances')
-        self.lagged_covariances = {}
-        for i in range(self.lag):
-            self.lagged_covariances[i] = \
-                pd.concat((self._normalized_residuals,
-                           self._normalized_residuals.shift(i)),
-                          axis=1).corr().iloc[:len(self._columns),
-                                              len(self._columns):]
-        print('assembling covariance matrix')
-        self.Sigma = pd.np.block(
-            [[self.lagged_covariances[np.abs(i)].values
-                for i in range(-j, self.lag - j)]
-                for j in range(self.lag)]
-        )
+        self.ar_model = Autotune_AutoRegressive(
+            self._train_normalized_residuals,
+            self._test_normalized_residuals,
+            self.future_lag)
+        # print('computing lagged covariances')
+        # self.lagged_covariances = {}
+        # for i in range(self.lag):
+        #     self.lagged_covariances[i] = \
+        #         pd.concat((self._normalized_residuals,
+        #                    self._normalized_residuals.shift(i)),
+        #                   axis=1).corr().iloc[:len(self._columns),
+        #                                       len(self._columns):]
+        # print('assembling covariance matrix')
+        # self.Sigma = pd.np.block(
+        #     [[self.lagged_covariances[np.abs(i)].values
+        #         for i in range(-j, self.lag - j)]
+        #         for j in range(self.lag)]
+        # )
 
     def _predict_concatenated_AR(self,
                                  concatenated,
@@ -272,9 +198,32 @@ class Model:
 
         return [concatenated]
 
+    def plot_test_RMSEs(self):
+        import matplotlib.pyplot as plt
+
+        guessed_test_residuals_at_lag = self.ar_model.test_model_NEW(
+            self.ar_model.test_normalized)
+        all_results = []
+        baseline = self.predict_baseline(self.test.index)
+
+        for el in guessed_test_residuals_at_lag:
+            residuals = el * self._residuals_stds
+            all_results.append(
+                self._clip_prediction(residuals + baseline))
+        for column in self._columns:
+            plt.figure()
+            plt.plot([pd.np.sqrt((all_results[i][column] - self.test[column])**2).mean()
+                      for i in range(self.future_lag)], 'k.-', label='AR prediction')
+            plt.plot([pd.np.sqrt((baseline[column] - self.test[column])**2).mean()
+                      for i in range(24)], 'k--', label='baseline')
+            plt.title(column)
+            plt.legend()
+            plt.xlabel('prediction lag')
+            plt.ylabel('RMSE')
+
     def _predict_normalized_residual_AR(self, chunk,
                                         number_scenarios=0):
-        #chunk = model._normalized_residuals.iloc[-10:]
+        # chunk = model._normalized_residuals.iloc[-10:]
         assert len(chunk) == self.lag
         chunk_index = chunk.index
 
