@@ -10,6 +10,9 @@ in the recent paper
 
 ### Installation
 
+**Note: `tsar` is currently under development and is not suitable for
+use in production.**
+
 To install, execute in a terminal
 
 ```
