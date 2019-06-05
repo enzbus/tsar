@@ -19,13 +19,43 @@ import numpy as np
 import pandas as pd
 import numba as nb
 import logging
+import scipy.stats
+
 from .baseline import HarmonicBaseline
 from .autotune import AutotunedBaseline, Autotune_AutoRegressive
 from .autoregressive import AutoRegressive  # , Autotune_AutoRegressive
 
+
 logger = logging.getLogger(__name__)
 
 __all__ = ['Model']
+
+
+def compute_gaussian_interpolation(column, N=10, corrector=1E-5):
+    xs = np.array([scipy.stats.norm.ppf(i) for i in np.concatenate(
+        [[1. / len(column)], (np.arange(1, N) / N), [1 - 1. / len(column)]])])
+    quantiles = np.array([column.quantile(i) for i in (np.arange(N + 1) / N)])
+
+    if not np.all(np.diff(quantiles) > 0):
+
+        new_quantiles = (quantiles * (1 - corrector) + quantiles[0] * corrector +
+                         np.arange(len(quantiles)) * corrector * (quantiles[-1] - quantiles[0])
+                         / (len(quantiles) - 1))
+
+        assert np.all(np.diff(new_quantiles) > 0)
+        assert np.isclose((new_quantiles - quantiles)[0], 0)
+        assert np.isclose((new_quantiles - quantiles)[-1], 0)
+        return xs, new_quantiles
+
+    return xs, quantiles
+
+
+def gaussianize(column, xs, quantiles):
+    return np.interp(column, quantiles, xs)
+
+
+def invert_gaussianize(column, xs, quantiles):
+    return np.interp(column, xs, quantiles)
 
 
 class Model:
@@ -33,8 +63,10 @@ class Model:
     def __init__(
             self,
             data,
-            # baseline_per_column_options={},
-            future_lag):
+            future_lag,
+            baseline_per_column_options={},
+            P=None,
+            past_lag=None):
 
         if not isinstance(data, pd.DataFrame):
             raise ValueError(
@@ -54,15 +86,51 @@ class Model:
         self.test = data.iloc[-len(data) // 3:]
         # prilen(train), len(test)
 
-        # self.baseline_per_column_options =\
-        #     baseline_per_column_options
+        self.baseline_per_column_options =\
+            baseline_per_column_options
+        self.P = P
+        self.past_lag = past_lag
 
-        self._fit_baselines()
         self._fit_ranges()
+        self._fit_gaussianization(self.train)
+
+        self.gaussianized_train = self._gaussianize(self.train)
+        self.gaussianized_test = self._gaussianize(self.test)
+
+        self._fit_baselines(self.gaussianized_train,
+                            self.gaussianized_test)
+
         self._residuals_stds = self._train_residuals.std()
         self._train_normalized_residuals = self._train_residuals / self._residuals_stds
         self._test_normalized_residuals = self._test_residuals / self._residuals_stds
         self._fit_AR()
+
+        # TODO refit with full data
+
+    def _fit_gaussianization(self, train):
+        self.gaussanization_params = {}
+        for col in self._columns:
+            self.gaussanization_params[col] = \
+                compute_gaussian_interpolation(train[col])
+
+    def _gaussianize(self, data):
+        return pd.DataFrame(
+            {
+                k: gaussianize(
+                    data[k],
+                    *
+                    self.gaussanization_params[k]) for k in self._columns},
+            index=data.index)[
+                self._columns]
+
+    def _invert_gaussianize(self, data):
+        return pd.DataFrame(
+            {
+                k: invert_gaussianize(
+                    data[k],
+                    *self.gaussanization_params[k]) for k in self._columns},
+            index=data.index)[
+                self._columns]
 
     def _fit_ranges(self):
         self._min = self.train.min()
@@ -85,11 +153,11 @@ class Model:
 
     @property
     def _train_residuals(self):
-        return self.train - self.predict_baseline(self.data.index)
+        return self.gaussianized_train - self.predict_baseline(self.data.index)
 
     @property
     def _test_residuals(self):
-        return self.test - self.predict_baseline(self.test.index)
+        return self.gaussianized_test - self.predict_baseline(self.test.index)
 
     def predict(self, last_data, number_scenarios=0):
         print('last_data', last_data.shape)
@@ -107,7 +175,7 @@ class Model:
         print('last_data', last_data.shape)
         baseline = self.predict_baseline(last_data.index)
         print('baseline', baseline.shape)
-        residuals = last_data - baseline
+        residuals = self._gaussianize(last_data) - baseline
         normalized_residuals = residuals / self._residuals_stds
         normalized_residuals_list = self._predict_normalized_residual_AR(
             normalized_residuals, number_scenarios)
@@ -115,7 +183,8 @@ class Model:
         for normalized_residuals in normalized_residuals_list:
             residuals = normalized_residuals * self._residuals_stds
             all_results.append(
-                self._clip_prediction(residuals + baseline))
+                self._clip_prediction(self._invert_gaussianize(
+                    residuals + baseline)))
             if not number_scenarios:
                 return all_results[-1]
         return all_results
@@ -127,17 +196,20 @@ class Model:
                 index=index, name=col)
              for col in self._columns], axis=1)
 
-    def _fit_baselines(self):
+    def _fit_baselines(self, train, test):
         self._baselines = {}
         for column in self._columns:
-            # if column in self.baseline_per_column_options:
-            #     self._baselines[column] = HarmonicBaseline(
-            #         self.data[column],
-            #         **self.baseline_per_column_options[column])
-            # else:
-            self._baselines[column] = AutotunedBaseline(
-                self.train[column],
-                self.test[column])
+            if column in self.baseline_per_column_options:
+                self._baselines[column] = AutotunedBaseline(
+                    train[column],
+                    test[column],
+                    **self.baseline_per_column_options[column]
+                )
+            else:
+                self._baselines[column] = AutotunedBaseline(
+                    train[column],
+                    test[column]
+                )
 
     @property
     def Sigma(self):
@@ -151,7 +223,9 @@ class Model:
         self.ar_model = Autotune_AutoRegressive(
             self._train_normalized_residuals,
             self._test_normalized_residuals,
-            self.future_lag)
+            self.future_lag,
+            self.P,
+            self.past_lag)
         # print('computing lagged covariances')
         # self.lagged_covariances = {}
         # for i in range(self.lag):
@@ -209,12 +283,14 @@ class Model:
         for el in guessed_test_residuals_at_lag:
             residuals = el * self._residuals_stds
             all_results.append(
-                self._clip_prediction(residuals + baseline))
+                self._clip_prediction(
+                    self._invert_gaussianize(residuals + baseline)))
+        inverted_baseline = self._invert_gaussianize(baseline)
         for column in self._columns:
             plt.figure()
             plt.plot([pd.np.sqrt((all_results[i][column] - self.test[column])**2).mean()
                       for i in range(self.future_lag)], 'k.-', label='AR prediction')
-            plt.plot([pd.np.sqrt((baseline[column] - self.test[column])**2).mean()
+            plt.plot([pd.np.sqrt((inverted_baseline[column] - self.test[column])**2).mean()
                       for i in range(24)], 'k--', label='baseline')
             plt.title(column)
             plt.legend()

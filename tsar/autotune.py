@@ -157,7 +157,7 @@ def baseline_autotune(train, test, min_harmonics=3,
         max_annual = max(max_daily, current_best_annual + 2)
 
 
-def AutotunedBaseline(train, test):
+def AutotunedBaseline(train, test, **kwargs):
     print('autotuning baseline for column %s' % train.name)
-    params = baseline_autotune(train, test)
+    params = baseline_autotune(train, test, **kwargs)
     return HarmonicBaseline(train.dropna(), *params)
