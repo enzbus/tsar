@@ -15,6 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
+
 import numpy as np
 import pandas as pd
 import numba as nb
@@ -99,6 +100,7 @@ def guess_matrix(matrix_with_na, Sigma, min_rows=5):
 
 
 class AutoRegressive:
+    # TODO: remove test dataset from the class
 
     def __init__(self, train_normalized,
                  test_normalized,
@@ -117,6 +119,7 @@ class AutoRegressive:
         self.fit_AR()
 
     def plot(self):
+        # TODO this should be a function out of the class
         self.train_sq_err = self.test_model(self.train_normalized)
         self.plot_RMSE(np.sqrt(self.train_sq_err.mean()), train=True)
         self.test_normalized.std().plot(color='r',
@@ -125,10 +128,12 @@ class AutoRegressive:
 
     @property
     def test_RMSE(self):
+        # TODO remove
         return np.sqrt(self.test_sq_err.mean().mean())
 
     @property
     def lag(self):
+        # TODO remove
         return self.future_lag + self.past_lag
 
     def fit_AR(self):
@@ -138,6 +143,8 @@ class AutoRegressive:
         self.test_sq_err = self.test_model(self.test_normalized)
 
     def _fit_low_rank_covariances(self):
+        # TODO spacchetta la funzione che fa svd e la funzione che fa
+        # le covarianze laggate
         if self.P not in self.svd_results:
             print('computing rank %d svd of train data' % self.P)
             self.svd_results[self.P] = \
@@ -175,6 +182,7 @@ class AutoRegressive:
                     self.train_normalized, i)
 
     def _assemble_Sigma(self):
+        # TODO this should be low-rank plus diag.
         print('adding diagonal to covariance')
         # self.raw_covariances = {}
         for i in range(self.lag):  # self.lag):
@@ -184,7 +192,7 @@ class AutoRegressive:
             #     self.train_normalized, i)
 
             self.embedding_covariances[self.P][i] += \
-                np.diag(np.diag(self.full_covariances[i]) -
+                np.diag(np.diag(self.full_covariances[i].fillna(0)) -
                         np.diag(self.embedding_covariances[self.P][i]))
             assert np.allclose(
                 np.diag(self.embedding_covariances[self.P][i]) -
@@ -200,6 +208,7 @@ class AutoRegressive:
         assert np.allclose((self.Sigma - self.Sigma.T), 0)
 
     def plot_RMSE(self, RMSE, train):
+        # TODO make it a function
         N = self.train_normalized.shape[1]
         for i in range(self.future_lag):
             RMSE[self.N * i:self.N * (i + 1)].plot(color='b' if train
@@ -207,6 +216,7 @@ class AutoRegressive:
                                                    alpha=1. / (i + 1))
 
     def test_model(self, data):
+        # TODO remove
         test_concatenated = pd.concat([
             data.shift(-i)
             for i in range(self.lag)], axis=1)
@@ -227,6 +237,7 @@ class AutoRegressive:
         return squared_error
 
     def test_model_NEW(self, data):
+        # TODO this is called by tsar, rename it like "predict"
         test_concatenated = pd.concat([
             data.shift(-i)
             for i in range(self.lag)], axis=1)

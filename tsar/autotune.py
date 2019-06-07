@@ -23,12 +23,15 @@ import scipy.sparse.linalg as spl
 
 from .autoregressive import AutoRegressive
 from .baseline import HarmonicBaseline
+from .greedy_grid_search import greedy_grid_search
 
 logger = logging.getLogger(__name__)
 
 __all__ = ['Autotune_AutoRegressive', 'AutotunedBaseline']
 
 
+# TODO unisci la logica, greedy grid search, per ridurre
+# la quantità di codice
 def Autotune_AutoRegressive(train_residuals,
                             test_residuals,
                             future_lag,
@@ -82,82 +85,137 @@ def Autotune_AutoRegressive(train_residuals,
                           P=best_P)
 
 
-def baseline_autotune(train, test, min_harmonics=3,
-                      trend=None,
+def baseline_autotune(train, test,
                       daily_harmonics=None,
                       weekly_harmonics=None,
-                      annual_harmonics=None):
-
-    results_test_RMSE = {}
+                      annual_harmonics=None,
+                      trend=None,
+                      pre_gaussianize=None):
 
     train = train.dropna()
     test = test.dropna()
 
-    BOUND_WEEKLY = 6
+    print('autotuning baseline on %d train and %d test points' %
+          (len(train), len(test)))
 
-    max_daily = min_harmonics
-    max_weekly = min_harmonics
-    max_annual = min_harmonics
+    daily_harmonics = np.arange(
+        24) if daily_harmonics is None else [daily_harmonics]
+    weekly_harmonics = np.arange(
+        6) if weekly_harmonics is None else [daily_harmonics]
+    annual_harmonics = np.arange(
+        50) if annual_harmonics is None else [annual_harmonics]
+    trend = [False, True] if trend is None else [trend]
+    pre_gaussianize = [
+        False, True] if pre_gaussianize is None else [pre_gaussianize]
 
-    while True:
+    def test_RMSE(
+            daily_harmonics,
+            weekly_harmonics,
+            annual_harmonics,
+            trend,
+            pre_gaussianize):
+        baseline = HarmonicBaseline(train,
+                                    daily_harmonics,
+                                    weekly_harmonics,
+                                    annual_harmonics,
+                                    trend,
+                                    pre_gaussianize)
 
-        daily_harmonics_range = range(max_daily) if \
-            daily_harmonics is None else [daily_harmonics]
-        weekly_harmonics_range = range(max_weekly) if \
-            weekly_harmonics is None else [weekly_harmonics]
-        annual_harmonics_range = range(max_annual) if \
-            annual_harmonics is None else [annual_harmonics]
-        trend_range = [False, True] if \
-            trend is None else [trend]
+        return np.sqrt(((test - baseline.baseline(
+            test.index))**2).mean())
 
-        for daily_harmonics_test in daily_harmonics_range:
-            for weekly_harmonics_test in weekly_harmonics_range:
-                for annual_harmonics_test in annual_harmonics_range:
-                    for trend_test in trend_range:
-                        if (daily_harmonics_test, weekly_harmonics_test,
-                                annual_harmonics_test, trend_test) \
-                                in results_test_RMSE:
-                            continue
-                        baseline = HarmonicBaseline(train,
-                                                    daily_harmonics_test,
-                                                    weekly_harmonics_test,
-                                                    annual_harmonics_test,
-                                                    trend_test)
+    res = greedy_grid_search(test_RMSE,
+                             [daily_harmonics,
+                              weekly_harmonics,
+                              annual_harmonics,
+                              trend,
+                              pre_gaussianize],
+                             num_steps=2)
 
-                        test_RMSE = np.sqrt(((test - baseline._predict_baseline(
-                            test.index))**2).mean())
-                        # print('test_RMSE:, ', test_RMSE)
-                        results_test_RMSE[(daily_harmonics_test,
-                                           weekly_harmonics_test,
-                                           annual_harmonics_test,
-                                           trend_test)] = test_RMSE
+    print('optimal params: %s' % res)
+    print('test std. dev.: %.2f' % test.std())
 
-        current_best = min(results_test_RMSE, key=results_test_RMSE.get)
+    return res
 
-        current_best_daily = current_best[0]
-        current_best_weekly = current_best[1]
-        current_best_annual = current_best[2]
 
-        if ((current_best_daily < max_daily - 1) or
-            daily_harmonics is not None) and \
-           ((current_best_weekly < max_weekly - 1) or
-            weekly_harmonics is not None) and \
-           ((current_best_annual < max_annual - 1) or
-                annual_harmonics is not None):
-            print('tried %d baseline parameter combinations' %
-                  len(results_test_RMSE))
-            print('optimal baseline parameters: ', current_best)
-            print('test RMSE: ', results_test_RMSE[current_best])
-            print('test std. dev.: ', test.std())
-            print()
-            return current_best
+# def baseline_autotune_OLD(train, test, min_harmonics=3,
+#                           trend=None,
+#                           daily_harmonics=None,
+#                           weekly_harmonics=None,
+#                           annual_harmonics=None):
 
-        max_daily = max(max_daily, current_best_daily + 2)
-        max_weekly = max(max_weekly, current_best_weekly + 2)
-        max_annual = max(max_daily, current_best_annual + 2)
+#     results_test_RMSE = {}
+
+#     train = train.dropna()
+#     test = test.dropna()
+
+#     BOUND_WEEKLY = 6
+
+#     max_daily = min_harmonics
+#     max_weekly = min_harmonics
+#     max_annual = min_harmonics
+
+#     while True:
+
+#         daily_harmonics_range = range(max_daily) if \
+#             daily_harmonics is None else [daily_harmonics]
+#         weekly_harmonics_range = range(max_weekly) if \
+#             weekly_harmonics is None else [weekly_harmonics]
+#         annual_harmonics_range = range(max_annual) if \
+#             annual_harmonics is None else [annual_harmonics]
+#         trend_range = [False, True] if \
+#             trend is None else [trend]
+
+#         for daily_harmonics_test in daily_harmonics_range:
+#             for weekly_harmonics_test in weekly_harmonics_range:
+#                 for annual_harmonics_test in annual_harmonics_range:
+#                     for trend_test in trend_range:
+#                         if (daily_harmonics_test, weekly_harmonics_test,
+#                                 annual_harmonics_test, trend_test) \
+#                                 in results_test_RMSE:
+#                             continue
+#                         baseline = HarmonicBaseline(train,
+#                                                     daily_harmonics_test,
+#                                                     weekly_harmonics_test,
+#                                                     annual_harmonics_test,
+#                                                     trend_test)
+
+#                         test_RMSE = np.sqrt(((test - baseline._predict_baseline(
+#                             test.index))**2).mean())
+#                         # print('test_RMSE:, ', test_RMSE)
+#                         results_test_RMSE[(daily_harmonics_test,
+#                                            weekly_harmonics_test,
+#                                            annual_harmonics_test,
+#                                            trend_test)] = test_RMSE
+
+#         current_best = min(results_test_RMSE, key=results_test_RMSE.get)
+
+#         current_best_daily = current_best[0]
+#         current_best_weekly = current_best[1]
+#         current_best_annual = current_best[2]
+
+#         if ((current_best_daily < max_daily - 1) or
+#             daily_harmonics is not None) and \
+#            ((current_best_weekly < max_weekly - 1) or
+#             weekly_harmonics is not None) and \
+#            ((current_best_annual < max_annual - 1) or
+#                 annual_harmonics is not None):
+#             print('tried %d baseline parameter combinations' %
+#                   len(results_test_RMSE))
+#             print('optimal baseline parameters: ', current_best)
+#             print('test RMSE: ', results_test_RMSE[current_best])
+#             print('test std. dev.: ', test.std())
+#             print()
+#             return current_best
+
+#         max_daily = max(max_daily, current_best_daily + 2)
+#         max_weekly = max(max_weekly, current_best_weekly + 2)
+#         max_annual = max(max_daily, current_best_annual + 2)
 
 
 def AutotunedBaseline(train, test, **kwargs):
     print('autotuning baseline for column %s' % train.name)
-    params = baseline_autotune(train, test, **kwargs)
+    if len(train.dropna().value_counts()) == 1:
+        kwargs['pre_gaussianize'] = False
+    params = baseline_autotune(train.dropna(), test.dropna(), **kwargs)
     return HarmonicBaseline(train.dropna(), *params)

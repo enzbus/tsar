@@ -16,10 +16,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import numpy as np
-#import pandas as pd
+import pandas as pd
 import numba as nb
 import logging
 logger = logging.getLogger(__name__)
+
+from .gaussianize import *
+from .utils import check_series
 
 __all__ = ['HarmonicBaseline']  # , 'baseline_autotune', 'AutotunedBaseline']
 
@@ -72,19 +75,6 @@ def make_periods(daily_harmonics,
         i += 1
     assert i == len(PERIODS)
 
-    # if daily:
-    #     PERIODS[i * harmonics : (i + 1) * harmonics] = \
-    #         base_periods[0] / np.arange(1, harmonics + 1)
-    #     i += 1
-    # if weekly:
-    #     PERIODS[i * harmonics : (i + 1) * harmonics] = \
-    #         base_periods[1] / np.arange(1, harmonics + 1)
-    #     i += 1
-    # if annual:
-    #     PERIODS[i * harmonics : (i + 1) * harmonics] = \
-    #         base_periods[2] / np.arange(1, harmonics + 1)
-    #     i += 1
-
     return PERIODS
 
 
@@ -95,22 +85,57 @@ class HarmonicBaseline:
                  daily_harmonics=4,
                  weekly_harmonics=0,
                  annual_harmonics=4,
-                 trend=False):
-        # if not isinstance(data, pd.Series):
-        #     raise ValueError(
-        #         'Train data must be a pandas Series')
+                 trend=False,
+                 pre_gaussianize=False):
+        check_series(train)
         self.daily_harmonics = daily_harmonics
         self.weekly_harmonics = weekly_harmonics
         self.annual_harmonics = annual_harmonics
         # self.harmonics = harmonics
         self.trend = trend
+        self.pre_gaussianize = pre_gaussianize
+        self.train = train
         self.periods = make_periods(self.daily_harmonics,
                                     self.weekly_harmonics,
                                     self.annual_harmonics)
         # print(self.periods)
-        # self.name = data.name
-        self._train_baseline(train)
-        self._baseline = self._predict_baseline(train.index)
+        self.name = train.name
+        if self.pre_gaussianize:
+            self.gaussianization_params = \
+                compute_gaussian_interpolator(train)
+            self.gaussianized_train = gaussianize(self.train,
+                                                  *self.gaussianization_params)
+            self._train_baseline(self.gaussianized_train)
+
+        self._train_baseline(self.train)
+        self.std = 1.
+        data_std = self.residuals(self.train).std()
+        if data_std > 0:
+            self.std = data_std
+            assert np.isclose(self.residuals(self.train).std(), 1.)
+        #self._baseline = self._predict_baseline(train.index)
+
+    def residuals(self, data):
+        check_series(data)
+
+        my_data = gaussianize(data,
+                              *self.gaussianization_params) \
+            if self.pre_gaussianize else data
+
+        return (my_data - self._predict_baseline(data.index)) / self.std
+
+    def invert_residuals(self, data):
+        check_series(data)
+
+        plus_baseline = data * self.std + self._predict_baseline(data.index)
+
+        return invert_gaussianize(plus_baseline,
+                                  *self.gaussianization_params) \
+            if self.pre_gaussianize else plus_baseline
+
+    def baseline(self, index):
+        return self.invert_residuals(pd.Series(0., index=index,
+                                               name=self.name))
 
     def _train_baseline(self, train):
 
