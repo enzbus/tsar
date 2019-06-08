@@ -59,6 +59,7 @@ class LowRankAR(BaseAutoregressor):
 
         self.svd_results = {}
         self.embedding_covariances = {}
+        self.train_rmses = np.sqrt((self.train**2).mean()).values
 
         self._fit()
 
@@ -89,10 +90,15 @@ class LowRankAR(BaseAutoregressor):
                 # lagged_covariance(embedding, i)  # \
                 #@ np.diag(s) @ v
 
-    # @property
-    # def fraction_explained_variance(self):
-    #     return pd.Series(self.orig_diag,
-    #                      index=self.train.columns)
+    @property
+    def fraction_variance_explained(self):
+        return pd.Series(self.orig_diag / self.train_rmses,
+                         index=self.train.columns)
+
+    @property
+    def factors(self):
+        u, s, v = self.svd_results[self.P]
+        return v
 
     def _assemble_Sigma(self):
         # TODO this should be low-rank plus diag
@@ -109,20 +115,35 @@ class LowRankAR(BaseAutoregressor):
         _, s, v = self.svd_results[self.P]
 
         # V = np.block([np.diag(s) @ v for i in range(self.lag)])
-        V = sp.bmat([[None] * i +
-                     [np.diag(s) @ v] +
-                     [None] * (self.lag - i - 1)
-                     for i in range(self.lag)])
+        base = np.diag(s) @ v
+        V = sp.lil_matrix((self.P * self.lag, self.N * self.lag))
+        if self.P:
+            for i in range(self.N):
+                V[:self.P, i * self.lag] = np.matrix(base[:, i]).T
+            for i in range(1, self.lag):
+                V[i * self.P:(i + 1) * self.P, i:] = V[:self.P, :-i]
+        V = V.tocsc()
+        # print(V)
+
+        # V = sp.bmat([[None] * i +
+        #              [np.diag(s) @ v] +
+        #              [None] * (self.lag - i - 1)
+        #              for i in range(self.lag)])
 
         self.orig_diag = np.diag(v.T @ np.diag(s) @
                                  self.embedding_covariances[self.P][0] @
                                  np.diag(s) @ v)
 
-        d = (1. - np.concatenate([self.orig_diag] * self.lag))
+        # d = (1. - np.concatenate([self.orig_diag] * self.lag))
+
+        d = (np.repeat(self.train_rmses - self.orig_diag, self.lag))
 
         # self.orig_diag = np.diag(self.Sigma)
 
         self.Sigma = SquareLowRankPlusDiagonal(V.T, S, V, d)
+
+        assert np.allclose(np.diag(self.Sigma.todense())
+                           - np.repeat(self.train_rmses, self.lag), 0.)
 
         # self.Sigma += sp.diags(1 - self.orig_diag)
 
@@ -156,6 +177,6 @@ def autotune_low_rank_autoregressor(train,
                              num_steps=2)
 
     print('optimal params: %s' % res)
-    #print('test std. dev.: %.2f' % np.sqrt((test**2).mean().mean()))
+    # print('test std. dev.: %.2f' % np.sqrt((test**2).mean().mean()))
 
     return res

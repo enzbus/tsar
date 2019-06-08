@@ -55,27 +55,42 @@ class BaseAutoregressor:
         return self.future_lag + self.past_lag
 
     def test_predict(self, test):
-        return self._test_predict(test)
 
-    def _test_predict(self, test):
+        # test_concatenated = pd.concat([
+        #     test.shift(-i)
+        #     for i in range(self.lag)], axis=1)
 
-        test_concatenated = pd.concat([
-            test.shift(-i)
-            for i in range(self.lag)], axis=1)
+        # TODO packet into own function
+        if self.N > 1:
+            test_concatenated = pd.concat([
+                pd.concat([test.iloc[:, j].shift(-i)
+                           for i in range(self.lag)], axis=1)
+                for j in range(self.N)], axis=1)
+        else:
+            test_concatenated = pd.concat([
+                test.shift(-i)
+                for i in range(self.lag)], axis=1)
 
-        null_mask = pd.Series(False,
-                              index=test_concatenated.columns)
-        null_mask[self.past_lag * self.N:] = True
+        future = pd.Series(False,
+                           index=test_concatenated.columns)
+        for j in range(self.N):
+            future[j * self.lag + self.past_lag:
+                   (j + 1) * self.lag] = True
+
+        #null_mask[self.past_lag * self.N:] = True
 
         to_guess = pd.DataFrame(test_concatenated, copy=True)
-        to_guess.loc[:, null_mask] = np.nan
-        guessed = guess_matrix(to_guess, self.Sigma).iloc[
-            :, self.past_lag * self.N:]
+        to_guess.loc[:, future] = np.nan
+        guessed = guess_matrix(to_guess, self.Sigma).loc[
+            :, future]
         assert guessed.shape[1] == self.future_lag * self.N
         guessed_at_lag = []
+        masker = np.arange(self.future_lag * self.N)
         for i in range(self.future_lag):
-            to_append = guessed.iloc[:, self.N * i:
-                                     self.N * (i + 1)].shift(i + self.past_lag)
+            # to_append = guessed.iloc[:, self.N * i:
+            # self.N * (i + 1)].shift(i + self.past_lag)
+            to_append = guessed.iloc[
+                :, (masker % self.future_lag) == i].shift(i + self.past_lag)
             # to_append.columns = [el + '_lag_%d' % (i + 1) for el in
             #                      to_append.columns]
             guessed_at_lag.append(to_append)

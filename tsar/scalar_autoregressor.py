@@ -70,7 +70,7 @@ class ScalarAutoregressor(BaseAutoregressor):
 
     def test_predict(self, test):
         check_series(test)
-        return self._test_predict(test)
+        return super().test_predict(test)
 
     # def test_predict(self, test):
     #     check_series(test)
@@ -117,7 +117,7 @@ def autotune_scalar_autoregressor(train,
     print('autotuning scalar autoregressor on %d train and %d test points' %
           (len(train), len(test)))
 
-    past_lag = np.arange(1, 100)
+    past_lag = np.arange(1, max_past_lag + 1)
 
     model = ScalarAutoregressor(train,
                                 future_lag,

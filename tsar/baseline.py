@@ -26,7 +26,7 @@ from .utils import check_series
 from .greedy_grid_search import greedy_grid_search
 
 
-__all__ = ['HarmonicBaseline']  # , 'baseline_autotune', 'AutotunedBaseline']
+__all__ = ['HarmonicBaseline', 'baseline_autotune']  # , 'AutotunedBaseline']
 
 
 @nb.jit(nopython=True)
