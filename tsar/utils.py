@@ -26,3 +26,15 @@ def check_series(data):
     if not isinstance(data, pd.Series):
         raise ValueError(
             'Data must be a pandas Series')
+
+
+def check_timeseries(data):
+    if not isinstance(data, pd.DataFrame):
+        raise ValueError(
+            'Train data must be a pandas DataFrame')
+    if not isinstance(data.index, pd.DatetimeIndex):
+        raise ValueError(
+            'Train data must be indexed by a pandas DatetimeIndex.')
+    if data.index.freq is None:
+        raise ValueError('Train data index must have a frequency. ' +
+                         'Try using the pandas.DataFrame.asfreq method.')

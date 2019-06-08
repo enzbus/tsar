@@ -25,47 +25,10 @@ logger = logging.getLogger(__name__)
 
 from .utils import check_series
 from .greedy_grid_search import greedy_grid_search
+from .base_autoregressor import BaseAutoregressor
 
 
-#@nb.jit(nopython=True)
-def schur_complement_matrix(matrix_with_na,
-                            null_mask,
-                            Sigma):
-    # null_mask = np.isnan(array_with_na)
-    Y = matrix_with_na[:, ~null_mask]
-
-    # A = Sigma[null_mask].T[null_mask]
-    B = Sigma[null_mask].T[~null_mask].T
-    C = Sigma[~null_mask].T[~null_mask]
-    inv_C = np.linalg.inv(C)
-
-    expected_X = B @ inv_C @ Y.T
-    matrix_with_na[:, null_mask] = expected_X.T
-    return matrix_with_na
-
-
-def guess_matrix(matrix_with_na, Sigma, min_rows=5):
-    print('guessing matrix')
-    full_null_mask = matrix_with_na.isnull()
-    ranked_masks = pd.Series([tuple(el) for el in
-                              full_null_mask.values]).value_counts().index
-
-    for i in range(len(ranked_masks)):
-        print('null mask %d' % i)
-        mask_indexes = (full_null_mask ==
-                        ranked_masks[i]).all(1)
-        if mask_indexes.sum() <= min_rows:
-            break
-        print('there are %d rows' % mask_indexes.sum())
-        matrix_with_na.loc[mask_indexes] = schur_complement_matrix(
-            matrix_with_na.loc[mask_indexes].values,
-            np.array(ranked_masks[i]),
-            Sigma)
-        # print(matrix_with_na)
-    return matrix_with_na
-
-
-class ScalarAutoregressor:
+class ScalarAutoregressor(BaseAutoregressor):
 
     def __init__(self,
                  train,
@@ -77,6 +40,7 @@ class ScalarAutoregressor:
         self.future_lag = future_lag
         self.past_lag = past_lag
         self.lagged_covariances = []
+        self.N = 1
 
         self._fit()
 
@@ -84,9 +48,9 @@ class ScalarAutoregressor:
         self._fit_lagged_covariances()
         self._make_Sigma()
 
-    @property
-    def lag(self):
-        return self.future_lag + self.past_lag
+    # @property
+    # def lag(self):
+    #     return self.future_lag + self.past_lag
 
     def _fit_lagged_covariances(self):
         for i in range(len(self.lagged_covariances), self.lag):
@@ -106,39 +70,43 @@ class ScalarAutoregressor:
 
     def test_predict(self, test):
         check_series(test)
+        return self._test_predict(test)
 
-        test_concatenated = pd.concat([
-            test.shift(-i)
-            for i in range(self.lag)], axis=1)
+    # def test_predict(self, test):
+    #     check_series(test)
 
-        null_mask = pd.Series(False,
-                              index=test_concatenated.columns)
-        null_mask[self.past_lag:] = True
+    #     test_concatenated = pd.concat([
+    #         test.shift(-i)
+    #         for i in range(self.lag)], axis=1)
 
-        to_guess = pd.DataFrame(test_concatenated, copy=True)
-        to_guess.loc[:, null_mask] = np.nan
-        guessed = guess_matrix(to_guess, self.Sigma).iloc[
-            :, self.past_lag:]
-        assert guessed.shape[1] == self.future_lag
-        guessed_at_lag = []
-        for i in range(self.future_lag):
-            to_append = guessed.iloc[:, i:
-                                     (i + 1)].shift(i + self.past_lag)
-            to_append.columns = [el + '_lag_%d' % (i + 1) for el in
-                                 to_append.columns]
-            guessed_at_lag.append(to_append)
-        return guessed_at_lag
+    #     null_mask = pd.Series(False,
+    #                           index=test_concatenated.columns)
+    #     null_mask[self.past_lag:] = True
 
-    def test_RMSE(self, test):
-        guessed_at_lags = self.test_predict(test)
-        all_errors = np.zeros(0)
-        for i, guessed in enumerate(guessed_at_lags):
-            errors = (guessed_at_lags[i].iloc[:, 0] -
-                      test).dropna().values
-            print('RMSE at lag %d = %.2f' % (i + 1,
-                                             np.sqrt(np.mean(errors**2))))
-            all_errors = np.concatenate([all_errors, errors])
-        return np.sqrt(np.mean(all_errors**2))
+    #     to_guess = pd.DataFrame(test_concatenated, copy=True)
+    #     to_guess.loc[:, null_mask] = np.nan
+    #     guessed = guess_matrix(to_guess, self.Sigma).iloc[
+    #         :, self.past_lag:]
+    #     assert guessed.shape[1] == self.future_lag
+    #     guessed_at_lag = []
+    #     for i in range(self.future_lag):
+    #         to_append = guessed.iloc[:, i:
+    #                                  (i + 1)].shift(i + self.past_lag)
+    #         to_append.columns = [el + '_lag_%d' % (i + 1) for el in
+    #                              to_append.columns]
+    #         guessed_at_lag.append(to_append)
+    #     return guessed_at_lag
+
+    # def test_RMSE(self, test):
+    #     guessed_at_lags = self.test_predict(test)
+    #     all_errors = np.zeros(0)
+    #     for i, guessed in enumerate(guessed_at_lags):
+    #         errors = (guessed_at_lags[i].iloc[:, 0] -
+    #                   test).dropna().values
+    #         print('RMSE at lag %d = %.2f' % (i + 1,
+    #                                          np.sqrt(np.mean(errors**2))))
+    #         all_errors = np.concatenate([all_errors, errors])
+    #     return np.sqrt(np.mean(all_errors**2))
 
 
 def autotune_scalar_autoregressor(train,
@@ -162,7 +130,7 @@ def autotune_scalar_autoregressor(train,
 
     res = greedy_grid_search(test_RMSE,
                              [past_lag],
-                             num_steps=2)
+                             num_steps=1)
 
     print('optimal params: %s' % res)
     print('test std. dev.: %.2f' % test.std())

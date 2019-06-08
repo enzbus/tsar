@@ -21,10 +21,10 @@ import numba as nb
 import logging
 
 from .gaussianize import *
-from .baseline import HarmonicBaseline
-from .autotune import AutotunedBaseline, Autotune_AutoRegressive
+from .baseline import HarmonicBaseline, AutotunedBaseline
+from .autotune import Autotune_AutoRegressive
 from .autoregressive import AutoRegressive  # , Autotune_AutoRegressive
-
+from .utils import check_timeseries
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +41,8 @@ class Model:
             P=None,
             past_lag=None):
 
-        if not isinstance(data, pd.DataFrame):
-            raise ValueError(
-                'Train data must be a pandas DataFrame')
-        if not isinstance(data.index, pd.DatetimeIndex):
-            raise ValueError(
-                'Train data must be indexed by a pandas DatetimeIndex.')
-        if data.index.freq is None:
-            raise ValueError('Train data index must have a frequency. ' +
-                             'Try using the pandas.DataFrame.asfreq method.')
+        check_timeseries(data)
+
         self.frequency = data.index.freq
         self._columns = data.columns
         self.future_lag = future_lag
@@ -79,14 +72,21 @@ class Model:
         self.train_residual = self.residuals(self.train)
         self.test_residual = self.residuals(self.test)
 
+        bad_columns = self.test_residual.columns[
+            np.sqrt((self.test_residual**2).mean()) > 3]
+
+        if len(bad_columns):
+            logger.warning(
+                'Columns %s have very large test residual, you should drop them.' %
+                list(bad_columns))
         # self._residuals_stds = self._train_residuals.std()
         # self._train_normalized_residuals = self._train_residuals / self._residuals_stds
         # self._test_normalized_residuals = self._test_residuals / self._residuals_stds
         # self.train_residuals =
 
-        # pass
-        self._fit_AR(self.train_residual, self.test_residuals)
-        # pass
+        pass
+        # self._fit_AR(self.train_residual, self.test_residual)
+        pass
 
         # TODO refit with full data
 
