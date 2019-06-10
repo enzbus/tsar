@@ -88,7 +88,8 @@ class HarmonicBaseline:
                  weekly_harmonics=0,
                  annual_harmonics=4,
                  trend=False,
-                 pre_gaussianize=False):
+                 pre_gaussianize=False,
+                 post_gaussianize=True):
         check_series(train)
         self.train = train
 
@@ -97,23 +98,30 @@ class HarmonicBaseline:
         self.annual_harmonics = annual_harmonics
         self.trend = trend
         self.pre_gaussianize = pre_gaussianize
+        self.post_gaussianize = post_gaussianize
 
         self.name = train.name
-        self.gaussianization_params = None
+        self.pre_gaussianization_params = None
         self.train_index_seconds = index_to_seconds(self.train.index)
 
         self._fit_baseline()
-        self._compute_std_residuals()
+        self._prepare_residuals()
 
-        #self._baseline = self._predict_baseline(train.index)
+        # self._baseline = self._predict_baseline(train.index)
 
-    def _compute_std_residuals(self):
-        self.std = 1.
-        data_std = self.residuals(self.train).std()
+    def _prepare_residuals(self):
+
+        if self.post_gaussianize:
+            self.post_gaussianization_params = \
+                compute_gaussian_interpolator(
+                    self._residuals(self.train))
+
+        self.rmse = 1.
+        data_std = np.sqrt((self.residuals(self.train)**2).mean())
         if data_std > 0:
-            self.std = data_std
-            assert np.isclose(self.residuals(self.train).std(), 1.)
-        #assert np.isclose(self.residuals(self.train).mean(), 0.)
+            self.rmse = data_std
+            #assert np.isclose(self.residuals(self.train).std(), 1.)
+        # assert np.isclose(self.residuals(self.train).mean(), 0.)
 
     def _make_periods(self):
         self.periods = make_periods(self.daily_harmonics,
@@ -125,39 +133,49 @@ class HarmonicBaseline:
         self._make_periods()
 
         if self.pre_gaussianize:
-            if self.gaussianization_params is None:
-                self.gaussianization_params = \
+            if self.pre_gaussianization_params is None:
+                self.pre_gaussianization_params = \
                     compute_gaussian_interpolator(self.train)
                 self.gaussianized_train = gaussianize(
-                    self.train, *self.gaussianization_params)
+                    self.train, *self.pre_gaussianization_params)
             self._train_baseline(self.gaussianized_train.values)
 
         else:
             self._train_baseline(self.train.values)
 
-        self.std = 1.
+        self.rmse = 1.
 
     def residuals(self, data):
+        return (gaussianize(self._residuals(data),
+                            *self.post_gaussianization_params)
+                if self.post_gaussianize else self._residuals(data)) / self.rmse
+
+    def _residuals(self, data):
         check_series(data)
 
         my_data = gaussianize(data,
-                              *self.gaussianization_params) \
+                              *self.pre_gaussianization_params) \
             if self.pre_gaussianize else data
 
-        return (my_data - self._predict_baseline(data.index)) / self.std
+        return (my_data - self._predict_baseline(data.index))
 
-    def invert_residuals(self, data):
+    def _invert_residuals(self, data):
         check_series(data)
 
-        plus_baseline = data * self.std + self._predict_baseline(data.index)
+        plus_baseline = data * self.rmse + self._predict_baseline(data.index)
 
         return invert_gaussianize(plus_baseline,
-                                  *self.gaussianization_params) \
+                                  *self.pre_gaussianization_params) \
             if self.pre_gaussianize else plus_baseline
 
+    def invert_residuals(self, data):
+        return self._invert_residuals(
+            invert_gaussianize(data, *self.post_gaussianization_params)) \
+            if self.post_gaussianize else self._invert_residuals(data)
+
     def baseline(self, index):
-        return self.invert_residuals(pd.Series(0., index=index,
-                                               name=self.name))
+        return self._invert_residuals(pd.Series(0., index=index,
+                                                name=self.name))
 
     def _train_baseline(self, train_values):
 

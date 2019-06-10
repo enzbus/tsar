@@ -44,7 +44,8 @@ class LowRankAR(BaseAutoregressor):
                  train,
                  P,
                  future_lag,
-                 past_lag):
+                 past_lag,
+                 off_diagonal_covariance=True):
 
         check_timeseries(train)
 
@@ -56,6 +57,7 @@ class LowRankAR(BaseAutoregressor):
         self.past_lag = past_lag
         self.N = self.train.shape[1]
         self.P = P
+        self.off_diagonal_covariance = off_diagonal_covariance
 
         self.svd_results = {}
         self.embedding_covariances = {}
@@ -98,15 +100,19 @@ class LowRankAR(BaseAutoregressor):
     @property
     def factors(self):
         u, s, v = self.svd_results[self.P]
-        return v
+        return pd.DataFrame(v, columns=self.train.columns)
 
     def _assemble_Sigma(self):
         # TODO this should be low-rank plus diag
         print('assembling covariance matrix')
         S = np.block(
-            [[self.embedding_covariances[self.P][i].values.T
+            [[(self.embedding_covariances[self.P][i].values.T
+               if self.off_diagonal_covariance
+               else np.diag(np.diag(self.embedding_covariances[self.P][i].values.T)))
               if i > 0 else
-              self.embedding_covariances[self.P][-i].values
+              (self.embedding_covariances[self.P][-i].values
+                if self.off_diagonal_covariance
+               else np.diag(np.diag(self.embedding_covariances[self.P][-i].values)))
                 for i in range(-j, self.lag - j)]
                 for j in range(self.lag)])
 
@@ -131,7 +137,9 @@ class LowRankAR(BaseAutoregressor):
         #              for i in range(self.lag)])
 
         self.orig_diag = np.diag(v.T @ np.diag(s) @
-                                 self.embedding_covariances[self.P][0] @
+                                 (self.embedding_covariances[self.P][0]
+                                  if self.off_diagonal_covariance else
+                                  np.diag(np.diag(self.embedding_covariances[self.P][0]))) @
                                  np.diag(s) @ v)
 
         # d = (1. - np.concatenate([self.orig_diag] * self.lag))
