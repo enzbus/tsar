@@ -89,7 +89,7 @@ class HarmonicBaseline:
                  annual_harmonics=4,
                  trend=False,
                  pre_gaussianize=False,
-                 post_gaussianize=True):
+                 post_gaussianize=False):
         check_series(train)
         self.train = train
 
@@ -174,6 +174,7 @@ class HarmonicBaseline:
             if self.post_gaussianize else self._invert_residuals(data)
 
     def baseline(self, index):
+        # TODO this should be property, or indexable?
         return self._invert_residuals(pd.Series(0., index=index,
                                                 name=self.name))
 

@@ -45,7 +45,7 @@ class LowRankAR(BaseAutoregressor):
                  P,
                  future_lag,
                  past_lag,
-                 off_diagonal_covariance=True):
+                 off_diagonal_covariance=False):
 
         check_timeseries(train)
 

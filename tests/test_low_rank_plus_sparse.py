@@ -7,7 +7,8 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath('..'))
 
-from tsar.low_rank_plus_sparse import LowRankPlusSparse, SquareLowRankPlusDiagonal
+from tsar.low_rank_plus_sparse import LowRankPlusSparse, \
+    SquareLowRankPlusDiagonal, SquareLowRankPlusBlockDiagonal
 
 
 class TestLowRankPlusSparse(unittest.TestCase):
@@ -128,3 +129,29 @@ class TestLowRankPlusSparse(unittest.TestCase):
 
             self.assertTrue(np.allclose(A.inv()
                                         - np.linalg.inv(A.todense()), 0))
+
+    def test_block_diagonal(self):
+
+        for (n, m, k) in [(20, 20, 5),
+                          (10, 10, 0),
+                          (1, 1, 10),
+                          (1, 1, 0)]:
+
+            U = np.random.randn(n, k)
+            S = np.random.randn(k, k)
+            V = np.random.randn(k, m)
+            d1 = np.random.randn(n // 2, n // 2)
+            d2 = np.random.randn(n - n // 2, n - n // 2)
+
+            A = SquareLowRankPlusBlockDiagonal(U, S, V, [d1, d2])
+
+            self.assertTrue(np.allclose(A.todense().T, A.T.todense()))
+
+            self.assertTrue(np.allclose(np.linalg.inv(A.todense()),
+                                        A.inv()))
+
+            self.assertTrue(np.allclose(A @ np.ones(n),
+                                        A.todense() @ np.ones(n)))
+
+            self.assertTrue(np.allclose(A[:n // 3, :n // 3].todense(),
+                                        A.todense()[:n // 3, :n // 3]))

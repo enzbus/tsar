@@ -55,9 +55,15 @@ class ScalarAutoregressor(BaseAutoregressor):
     def _fit_lagged_covariances(self):
         for i in range(len(self.lagged_covariances), self.lag):
             print('computing covariance lag %d' % i)
-            self.lagged_covariances.append(
-                pd.concat([self.train,
-                           self.train.shift(i)], axis=1).cov().iloc[1, 0])
+            cov = pd.concat([self.train,
+                             self.train.shift(i)], axis=1).cov()
+            mycov = cov.iloc[1, 0]
+            if np.isnan(mycov):
+                logger.warning(
+                    'Covariance at lag %d for column %s is NaN.' %
+                    (i, self.train.name))
+                mycov = 0.
+            self.lagged_covariances.append(mycov)
 
     def _make_Sigma(self):
         self.Sigma = np.block(

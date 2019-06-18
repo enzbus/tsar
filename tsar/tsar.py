@@ -24,7 +24,9 @@ from .gaussianize import *
 from .baseline import HarmonicBaseline, AutotunedBaseline
 from .autotune import Autotune_AutoRegressive
 from .autoregressive import AutoRegressive  # , Autotune_AutoRegressive
-from .utils import check_timeseries
+from .utils import RMSE, check_timeseries
+from .scalar_autoregressor import autotune_scalar_autoregressor, ScalarAutoregressor
+from .low_rank_autoregressor import *
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,8 @@ class Model:
         self.frequency = data.index.freq
         self._columns = data.columns
         self.future_lag = future_lag
+        # TODO fix
+        self.max_past_lag = future_lag
         self.data = data
 
         self.train = data.iloc[:-len(data) // 3]
@@ -84,6 +88,8 @@ class Model:
         # self._test_normalized_residuals = self._test_residuals / self._residuals_stds
         # self.train_residuals =
 
+        self._fit_scalar_AR(self.train_residual,
+                            self.test_residual)
         pass
         # self._fit_AR(self.train_residual, self.test_residual)
         pass
@@ -202,6 +208,50 @@ class Model:
                     test[column]
                 )
 
+    def _fit_scalar_AR(self, train, test):
+        self._scalar_ARs = {}
+        for column in self._columns:
+            # if column in self.baseline_per_column_options:
+            #     self._baselines[column] = AutotunedBaseline(
+            #         train[column],
+            #         test[column],
+            #         **self.baseline_per_column_options[column]
+            #     )
+            # else:
+            print('fitting scalar AR for column %s' % column)
+            past_lag, = autotune_scalar_autoregressor(
+                train[column], test[column],
+                future_lag=self.future_lag,
+                max_past_lag=self.max_past_lag)
+            self._scalar_ARs[column] = ScalarAutoregressor(
+                train[column],
+                future_lag=self.future_lag,
+                past_lag=past_lag)
+
+    @property
+    def scalar_RMSEs(self):
+        RMSEs = pd.DataFrame(
+            index=['RMSE_prediction_lag_%d' %
+                   (i + 1) for i in range(self.future_lag)] +
+            ['RMSE_baseline'])
+
+        for col in self._columns:
+            guessed_at_lags = \
+                self._scalar_ARs[col].test_predict(self.test_residual[col])
+
+            real_guessed_at_lags = \
+                [self._baselines[col].invert_residuals(guessed.iloc[:, 0])
+                 for guessed in guessed_at_lags]
+
+            RMSEs[col] = [
+                RMSE(real_guessed_at_lags[i].values,
+                     self.test[col].values) for i in range(
+                    self.future_lag)] + [
+                RMSE(self._baselines[col].baseline(
+                    self.test.index).values,
+                    self.test[col].values)]
+        return RMSEs
+
     @property
     def Sigma(self):
         return self.ar_model.Sigma
@@ -217,6 +267,41 @@ class Model:
             self.future_lag,
             self.P,
             self.past_lag)
+
+    def _fit_low_rank_AR(self, train, test):
+
+        P, past_lag = autotune_low_rank_autoregressor(
+            train,
+            test,
+            self.future_lag,
+            self.past_lag,
+            self.P)
+
+        self.ar_model = LowRankAR(train, P, self.future_lag,
+                                  past_lag)
+
+    @property
+    def low_rank_RMSEs(self):
+        # TODO alloc here is inefficient
+        RMSEs = pd.DataFrame(
+            index=['RMSE_prediction_lag_%d' %
+                   (i + 1) for i in range(self.future_lag)] +
+            ['RMSE_baseline'], columns=self._columns)
+
+        guessed_at_lags = \
+            self.ar_model.test_predict(self.test_residual)
+
+        real_guessed_at_lags = \
+            [self.invert_residuals(guessed)
+             for guessed in guessed_at_lags]
+
+        for i in range(self.future_lag):
+            RMSEs.iloc[i, :] = np.sqrt(((real_guessed_at_lags[i] -
+                                         self.test)**2).mean())
+        RMSEs.iloc[-1, :] = np.sqrt(((self.baseline(self.test.index) -
+                                      self.test)**2).mean())
+
+        return RMSEs
         # print('computing lagged covariances')
         # self.lagged_covariances = {}
         # for i in range(self.lag):
@@ -272,11 +357,11 @@ class Model:
         baseline = self.baseline(self.test.index)
 
         for residuals in all_residuals:
-            #residuals = el * self._residuals_stds
+            # residuals = el * self._residuals_stds
             all_results.append(
                 self._clip_prediction(
                     self.invert_residuals(residuals)))
-        #inverted_baseline = self._invert_gaussianize(baseline)
+        # inverted_baseline = self._invert_gaussianize(baseline)
         for column in self._columns:
             plt.figure()
             plt.plot([pd.np.sqrt((all_results[i][column] - self.test[column])**2).mean()

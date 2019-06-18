@@ -38,3 +38,9 @@ def check_timeseries(data):
     if data.index.freq is None:
         raise ValueError('Train data index must have a frequency. ' +
                          'Try using the pandas.DataFrame.asfreq method.')
+
+
+def RMSE(a, b):
+    diff = a - b
+    diff = diff[~np.isnan(diff)]
+    return np.sqrt(np.mean(diff**2))

@@ -34,7 +34,7 @@ class BlockDiagonal:
             raise ValueError('All blocks must be square.')
 
         self.diagonal_blocks = diagonal_blocks
-        self._matrix = sp.block_diag(diagonal_blocks)
+        self._matrix = sp.block_diag(diagonal_blocks).tocsc()
         self.block_indexes = np.zeros((self._matrix.shape[0],
                                        len(self.diagonal_blocks)),
                                       dtype=bool)
@@ -47,11 +47,14 @@ class BlockDiagonal:
 
     def square_slice(self, slicer):
         print('square slicing')
-        new_block_indexes = self.block_indexes.__getitem__(slicer)
+        new_block_indexes = np.zeros(self.block_indexes.shape, dtype=bool)
+        new_block_indexes.__setitem__(
+            (slicer, slice(None)), self.block_indexes.__getitem__(
+                (slicer, slice(None))))
         new_blocks = [
-            block[new_block_indexes[self.block_indexes[:, i], i],
-                  new_block_indexes[self.block_indexes[:, i], i]
-                  ]
+            block[
+                new_block_indexes[self.block_indexes[:, i], i]].T[
+                new_block_indexes[self.block_indexes[:, i], i]].T
             for i, block in enumerate(self.diagonal_blocks)]
         return BlockDiagonal(new_blocks)
 
@@ -62,7 +65,7 @@ class BlockDiagonal:
                 if (isinstance(slice_1, np.ndarray)
                         and np.all(slice_1 == slice_2)) \
                         or slice_1 == slice_2:
-                    return self.square_slice(slicer)
+                    return self.square_slice(slice_1)
             except ValueError as e:
                 pass
         return self._matrix.__getitem__(slices_or_indexes)
@@ -76,10 +79,14 @@ class BlockDiagonal:
     def todense(self):
         return self._matrix.todense()
 
+    @property
+    def T(self):
+        return BlockDiagonal([block.T for block in self.diagonal_blocks])
+
     def inv(self):
         def inverse(block):
             return np.linalg.inv(block
                                  if isinstance(block, np.ndarray)
                                  else block.todense())
         return BlockDiagonal([inverse(block)
-                              for block in diagonal_blocks])
+                              for block in self.diagonal_blocks])
