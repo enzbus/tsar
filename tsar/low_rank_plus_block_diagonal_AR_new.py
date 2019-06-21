@@ -20,14 +20,16 @@ import numpy as np
 import pandas as pd
 import numba as nb
 import logging
+import scipy.sparse as sp
 import scipy.sparse.linalg as spl
 import numba as nb
 logger = logging.getLogger(__name__)
 
 
-#from .utils import check_series
+# from .utils import check_series
 from .greedy_grid_search_new import greedy_grid_search
-#from .base_autoregressor import BaseAutoregressor
+from .linear_algebra_new import iterative_denoised_svd
+# from .base_autoregressor import BaseAutoregressor
 
 
 @nb.jit(nopython=True)
@@ -97,7 +99,99 @@ def fit_per_column_AR(train_table, cached_lag_covariances, lag):
     return cached_lag_covariances, Sigmas
 
 
-def fit_low_rank_plus_block_diagonal_AR(train, test=None,
+def make_V(v, s, lag):
+    # TODO make it faster?
+    logger.debug("Building V matrix.")
+    k, N = v.shape
+    V = sp.lil((N * lag, k * lag))
+    for i in range(lag):
+        V[i::lag, i::lag] = v.T
+    return V
+
+
+def _fit_low_rank_plus_block_diagonal_ar(train, lag, rank,
+                                         cached_lag_covariances,
+                                         cached_svd,
+                                         cached_factor_lag_covariances):
+
+    logger.debug('Fitting low rank plus diagonal model.')
+
+    cached_lag_covariances, scalar_Sigmas = fit_per_column_AR(
+        train, cached_lag_covariances, lag)
+
+    if rank not in cached_svd:
+        cached_svd[rank] = iterative_denoised_svd(train, rank)
+
+    u, s, v = cached_svd[rank]
+
+    if rank not in cached_factor_lag_covariances:
+        cached_factor_lag_covariances[rank] = []
+
+    cached_factor_lag_covariances[rank], factor_Sigmas = fit_per_column_AR(
+        u, cached_factor_lag_covariances[rank], lag)
+
+    V = make_V(v, s, lag)
+
+    S = sp.block_diag(factor_Sigmas)
+    S_inv = sp.block_diag([np.linalg.inv(block) for block in factor_Sigmas])
+
+    D_blocks = [scalar_Sigmas[i] -
+                V[lag * i: lag * (i + 1)] @ S @ V[lag * i: lag * (i + 1)].T
+                for i in range(len(scalar_Sigmas))]
+    D_matrix = sp.block_diag(D_blocks)
+    D_inv = sp.block_diag([np.linalg.inv(block) for block in D_blocks])
+
+    return V, S, S_inv, D_blocks, D_matrix, D_inv,\
+        cached_lag_covariances, cached_svd, cached_factor_lag_covariances
+
+
+def guess_matrix(matrix_with_na, V, S, S_inv,
+                 D_blocks, D_matrix,
+                 D_inv, min_rows=5, max_eval=5):
+    print('guessing matrix')
+    full_null_mask = matrix_with_na.isnull()
+    ranked_masks = pd.Series([tuple(el) for el in
+                              full_null_mask.values]).value_counts().index
+
+    for i in range(len(ranked_masks))[:max_eval]:
+
+        print('null mask %d' % i)
+        mask_indexes = (full_null_mask ==
+                        ranked_masks[i]).all(1)
+        if mask_indexes.sum() <= min_rows:
+            break
+        print('there are %d rows' % mask_indexes.sum())
+
+        # TODO fix
+        matrix_with_na.loc[mask_indexes] = schur_complement_matrix(
+            matrix_with_na.loc[mask_indexes].values,
+            np.array(ranked_masks[i]),
+            Sigma)
+    return matrix_with_na
+
+
+def make_prediction_mask(available_data_lags_columns, past_lag, future_lag):
+    lag = past_lag + future_lag
+    N = len(available_data_lags_columns)
+    mask = np.zeros(N * (past_lag + future_lag), dtype=bool)
+    for i in range(N):
+        mask[lag * i + past_lag + available_data_lags_columns[i]:
+             lag * (i + 1)] = True
+    return mask
+
+
+def make_rmse_mask(columns, ignore_prediction_columns, lag):
+    N = len(columns)
+    mask = np.ones(N * lag, dtype=bool)
+
+    for i, col in enumerate(columns):
+        if col in ignore_prediction_columns:
+            mask[lag * i: lag * (i + 1)] = False
+    return mask
+
+
+def fit_low_rank_plus_block_diagonal_AR(train,
+                                        test=None,
                                         future_lag,
                                         past_lag,
                                         rank,
@@ -109,8 +203,44 @@ def fit_low_rank_plus_block_diagonal_AR(train, test=None,
         past_lag_range = pass
         rank_range = pass
 
+        cached_lag_covariances = [[] for i in range(train.shape[1])]
+        cached_svd = {}
+        cached_factor_lag_covariances = {}
+
         def test_RMSE(past_lag, rank):
+
+            lag = past_lag + future_lag
+
+            V, S, S_inv, D_blocks, D_matrix, D_inv,\
+                cached_lag_covariances, cached_svd,
+                cached_factor_lag_covariances = \
+                    _fit_low_rank_plus_block_diagonal_ar(
+                        train,
+                        lag,
+                        rank,
+                        cached_lag_covariances,
+                        cached_svd,
+                        cached_factor_lag_covariances)
+
+            test_flattened = \
+                make_sliced_flattened_matrix(test, lag)
+
+            prediction_mask = make_prediction_mask(
+                available_data_lags_columns, lag)
+
+            rmse_mask = make_rmse_mask(train.columns,
+                                       ignore_prediction_columns, lag)
+
+            real_values_rmse = test_flattened[:, (prediction_mask & rmse_mask)]
+            test_flattened[:, prediction_mask] = np.nan
+            guessed = guess_matrix(test_flattened,
+                                   V, S, S_inv,
+                                   D_blocks, D_matrix,
+                                   D_inv)
+
             pass
+            # np.nanmean((guessed[:, (prediction_mask & rmse_mask)] -
+            #             real_values_rmse)**2)
 
         optimal_rmse, (past_lag,
                        rank) = greedy_grid_search(test_RMSE,
