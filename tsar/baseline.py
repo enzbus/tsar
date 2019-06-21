@@ -1,5 +1,5 @@
 """
-Copyright (C) Enzo Busseti 2019.
+Copyright © Enzo Busseti 2019.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -21,12 +21,7 @@ import numba as nb
 import logging
 logger = logging.getLogger(__name__)
 
-from .gaussianize import *
-from .utils import check_series
-from .greedy_grid_search import greedy_grid_search
-
-
-__all__ = ['HarmonicBaseline', 'baseline_autotune']  # , 'AutotunedBaseline']
+from .greedy_grid_search_new import greedy_grid_search
 
 
 @nb.jit(nopython=True)
@@ -60,199 +55,132 @@ def index_to_seconds(index):
 def make_periods(daily_harmonics,
                  weekly_harmonics,
                  annual_harmonics):
-    # print(daily_harmonics, weekly_harmonics, annual_harmonics)
-    PERIODS = np.empty(daily_harmonics + weekly_harmonics + annual_harmonics)
+    periods = np.empty(daily_harmonics + weekly_harmonics + annual_harmonics)
     base_periods = (24 * 3600.,  # daily
                     24 * 7 * 3600,  # weekly
                     8766 * 3600)  # annual
     i = 0
     for j in range(daily_harmonics):
-        PERIODS[i] = base_periods[0] / (j + 1)
+        periods[i] = base_periods[0] / (j + 1)
         i += 1
     for j in range(weekly_harmonics):
-        PERIODS[i] = base_periods[1] / (j + 1)
+        periods[i] = base_periods[1] / (j + 1)
         i += 1
     for j in range(annual_harmonics):
-        PERIODS[i] = base_periods[2] / (j + 1)
+        periods[i] = base_periods[2] / (j + 1)
         i += 1
-    assert i == len(PERIODS)
+    assert i == len(periods)
 
-    return PERIODS
-
-
-class HarmonicBaseline:
-
-    def __init__(self,
-                 train,
-                 daily_harmonics=4,
-                 weekly_harmonics=0,
-                 annual_harmonics=4,
-                 trend=False,
-                 pre_gaussianize=False):  # ,
-                 # post_gaussianize=False):
-        check_series(train)
-        self.train = train
-
-        self.daily_harmonics = daily_harmonics
-        self.weekly_harmonics = weekly_harmonics
-        self.annual_harmonics = annual_harmonics
-        self.trend = trend
-        self.pre_gaussianize = pre_gaussianize
-        #self.post_gaussianize = post_gaussianize
-
-        self.name = train.name
-        self.pre_gaussianization_params = None
-        self.train_index_seconds = index_to_seconds(self.train.index)
-
-        self._fit_baseline()
-        # self._prepare_residuals()
-
-        # self._baseline = self._predict_baseline(train.index)
-
-    def _prepare_residuals(self):
-
-        # if self.post_gaussianize:
-        #     self.post_gaussianization_params = \
-        #         compute_gaussian_interpolator(
-        #             self._residuals(self.train))
-
-        self.rmse = 1.
-        data_std = np.sqrt((self.residuals(self.train)**2).mean())
-        if data_std > 0:
-            self.rmse = data_std
-            #assert np.isclose(self.residuals(self.train).std(), 1.)
-        # assert np.isclose(self.residuals(self.train).mean(), 0.)
-
-    def _make_periods(self):
-        self.periods = make_periods(self.daily_harmonics,
-                                    self.weekly_harmonics,
-                                    self.annual_harmonics)
-
-    def _fit_baseline(self):
-
-        self._make_periods()
-
-        if self.pre_gaussianize:
-            if self.pre_gaussianization_params is None:
-                self.pre_gaussianization_params = \
-                    compute_gaussian_interpolator(self.train)
-                self.gaussianized_train = gaussianize(
-                    self.train, *self.pre_gaussianization_params)
-            self._train_baseline(self.gaussianized_train.values)
-
-        else:
-            self._train_baseline(self.train.values)
-
-        self.rmse = 1.
-        self._prepare_residuals()
-
-    # def residuals(self, data):
-    #     return (gaussianize(self._residuals(data),
-    #                         *self.post_gaussianization_params)
-    # if self.post_gaussianize else self._residuals(data)) / self.rmse
-
-    def residuals(self, data):
-        check_series(data)
-
-        my_data = gaussianize(data,
-                              *self.pre_gaussianization_params) \
-            if self.pre_gaussianize else data
-
-        return (my_data - self._predict_baseline(data.index)) / self.rmse
-
-    def invert_residuals(self, data):
-        check_series(data)
-
-        plus_baseline = data * self.rmse + self._predict_baseline(data.index)
-
-        return invert_gaussianize(plus_baseline,
-                                  *self.pre_gaussianization_params) \
-            if self.pre_gaussianize else plus_baseline
-
-    # def invert_residuals(self, data):
-    #     return self._invert_residuals(
-    #         invert_gaussianize(data, *self.post_gaussianization_params)) \
-    #         if self.post_gaussianize else self._invert_residuals(data)
-
-    def baseline(self, index):
-        # TODO this should be property, or indexable?
-        return self.invert_residuals(pd.Series(0., index=index,
-                                               name=self.name))
-
-    def _train_baseline(self, train_values):
-
-        Xtr = featurize_index_for_baseline(self.train_index_seconds,
-                                           self.periods,
-                                           trend=self.trend)
-        baseline_params = fit_seasonal_baseline(Xtr, train_values)
-        # print('fitted parameters: ', baseline_params)
-        self.baseline_params = baseline_params
-
-    def _predict_baseline(self, index):
-        Xte = featurize_index_for_baseline(index_to_seconds(index),
-                                           self.periods,
-                                           trend=self.trend)
-        return predict_with_baseline(Xte, self.baseline_params)
+    return periods
 
 
-def baseline_autotune(train, test,
-                      daily_harmonics=None,
-                      weekly_harmonics=None,
-                      annual_harmonics=None,
-                      trend=None):  # ,
-                      # pre_gaussianize=None):
+def compute_baseline(index,
+                     daily_harmonics,
+                     weekly_harmonics,
+                     annual_harmonics,
+                     trend,
+                     baseline_fit_result):
+
+    periods = make_periods(daily_harmonics,
+                           weekly_harmonics,
+                           annual_harmonics)
+
+    X = featurize_index_for_baseline(index_to_seconds(index),
+                                     periods, trend=trend)
+    return predict_with_baseline(X, baseline_fit_result)
+
+
+def data_to_residual(data: pd.Series, params: dict) ->: pd.Series:
+    return (data - compute_baseline(data.index,
+                                    params['daily_harmonics'],
+                                    params['weekly_harmonics'],
+                                    params['annual_harmonics'],
+                                    params['trend'],
+                                    params['baseline_fit_result'])) / params['std']
+
+
+def residual_to_data(residual: pd.Series, params: dict) ->: pd.Series:
+    return data * params['std'] + compute_baseline(
+        data.index,
+        params['daily_harmonics'],
+        params['weekly_harmonics'],
+        params['annual_harmonics'],
+        params['trend'],
+        params['baseline_fit_result'])
+
+
+def _fit_baseline(data,
+                  daily_harmonics,
+                  weekly_harmonics,
+                  annual_harmonics,
+                  trend):
+
+    periods = make_periods(daily_harmonics,
+                           weekly_harmonics,
+                           annual_harmonics)
+
+    X = featurize_index_for_baseline(index_to_seconds(data.index),
+                                     periods, trend=trend)
+
+    return fit_seasonal_baseline(X, data.values)
+
+
+def fit_baseline(train, test=None, params):
 
     train = train.dropna()
-    test = test.dropna()
 
-    print('autotuning baseline on %d train and %d test points' %
-          (len(train), len(test)))
+    if test is not None:
+        test = test.dropna()
 
-    daily_harmonics = np.arange(
-        24) if daily_harmonics is None else [daily_harmonics]
-    weekly_harmonics = np.arange(
-        6) if weekly_harmonics is None else [daily_harmonics]
-    annual_harmonics = np.arange(
-        50) if annual_harmonics is None else [annual_harmonics]
-    trend = [False, True] if trend is None else [trend]
-    # pre_gaussianize = [
-    #     False, True] if pre_gaussianize is None else [pre_gaussianize]
+        logger.debug('Autotuning baseline on %d train and %d test points' %
+                     (len(train), len(test)))
 
-    baseline = HarmonicBaseline(train, 0, 0, 0, 0, False)
+        daily_harmonics_range = np.arange(24) if 'daily_harmonics' \
+            not in params else [params['daily_harmonics']]
+        weekly_harmonics_range = np.arange(6) if 'weekly_harmonics'
+            not in params else [params['weekly_harmonics']]
+        annual_harmonics_range = np.arange(50) if 'annual_harmonics'
+            not in params else [params['annual_harmonics']]
+        trend = [False, True] if 'trend' not in params else [params['trend']]
 
-    def test_RMSE(
-            daily_harmonics,
-            weekly_harmonics,
-            annual_harmonics,
-            trend):  # ,
-        # pre_gaussianize):
-        baseline.daily_harmonics = daily_harmonics
-        baseline.weekly_harmonics = weekly_harmonics
-        baseline.annual_harmonics = annual_harmonics
-        baseline.trend = trend
-        #baseline.pre_gaussianize = pre_gaussianize
-        baseline._fit_baseline()
+        def test_RMSE(
+                daily_harmonics,
+                weekly_harmonics,
+                annual_harmonics,
+                trend):
+            baseline_fit_result = _fit_baseline(data,
+                                                daily_harmonics,
+                                                weekly_harmonics,
+                                                annual_harmonics,
+                                                trend)
 
-        return np.sqrt(((test - baseline.baseline(
-            test.index))**2).mean())
+            return np.sqrt(
+                ((test - compute_baseline(
+                    test.index,
+                    daily_harmonics,
+                    weekly_harmonics,
+                    annual_harmonics,
+                    trend,
+                    baseline_fit_result))**2).mean())
 
-    res = greedy_grid_search(test_RMSE,
-                             [daily_harmonics,
-                              weekly_harmonics,
-                              annual_harmonics,
-                              trend],  # ,
-                             # pre_gaussianize],
-                             num_steps=2)
+        optimal_rmse, (params['daily_harmonics'],
+                       params['weekly_harmonics'],
+                       params['annual_harmonics'],
+                       params['trend']) = greedy_grid_search(test_RMSE,
+                                                             [daily_harmonics,
+                                                              weekly_harmonics,
+                                                              annual_harmonics,
+                                                              trend],
+                                                             num_steps=2)
 
-    print('optimal params: %s' % res)
-    print('test std. dev.: %.2f' % test.std())
+    params['baseline_fit_result'] =\
+        _fit_baseline(train, params['daily_harmonics'],
+                      params['weekly_harmonics'],
+                      params['annual_harmonics'],
+                      params['trend'])
 
-    return res
+    params['std'] = 1.
+    params['std'] = np.std(data_to_residual(train, params))
 
-
-def AutotunedBaseline(train, test, **kwargs):
-    print('autotuning baseline for column %s' % train.name)
-    # if len(train.dropna().value_counts()) == 1:
-    #     kwargs['pre_gaussianize'] = False
-    params = baseline_autotune(train.dropna(), test.dropna(), **kwargs)
-    return HarmonicBaseline(train.dropna(), *params)
+    if test is not None:
+        return optimal_rmse

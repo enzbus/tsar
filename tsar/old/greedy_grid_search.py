@@ -1,5 +1,5 @@
 """
-Copyright © Enzo Busseti 2019.
+Copyright (C) Enzo Busseti 2019.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -16,8 +16,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import numpy as np
-import logging
-logger = logging.getLogger(__name__)
 
 
 def min_key(d):
@@ -41,9 +39,9 @@ def greedy_grid_search(function,
             params = [param[current_counter[i]]
                       for i, param in enumerate(parameter_indexables)]
 
-            logger.debug('evaluating function at %s' % params)
+            print('evaluating function at %s' % params)
             value = function(*params)
-            logger.debug('function value = %f' % value)
+            print('function value = %f' % value)
             results[tuple(current_counter)] = value
 
     evaluate_function()
@@ -72,9 +70,8 @@ def greedy_grid_search(function,
         current_counter = list(min_key(results))
 
         if tuple(old_current_counter) == tuple(current_counter):
-            logger.debug('optimal function value = %f' %
-                         results[tuple(current_counter)])
-            return results[tuple(current_counter)], \
-                [param[current_counter[i]]
-                 for i, param in
-                 enumerate(parameter_indexables)]
+            print('optimal function value = %f' %
+                  results[tuple(current_counter)])
+            return [param[current_counter[i]]
+                    for i, param in
+                    enumerate(parameter_indexables)]
