@@ -22,10 +22,54 @@ import numba as nb
 import logging
 import scipy.sparse.linalg as spl
 logger = logging.getLogger(__name__)
+import numba as nb
 
 from .utils import check_series
 from .greedy_grid_search import greedy_grid_search
 from .base_autoregressor import BaseAutoregressor
+
+
+@nb.jit(nopython=True)
+def make_Sigma_scalar_AR(lagged_covariances):
+    lag = len(lagged_covariances)
+    Sigma = np.empty((lag, lag))
+    for i in range(lag):
+        for k in range(-i, lag - i):
+            Sigma[i, k + i] = lagged_covariances[
+                k] if k > 0 else lagged_covariances[-k]
+    # assert np.allclose((Sigma - Sigma.T), 0)
+    return Sigma
+
+
+@nb.jit(nopython=True)
+def lag_covariance(array, lag):
+    # shifted = np.shift(series, lag)
+    multiplied = array[lag:] * array[:len(array) - lag]
+    return np.nanmean(multiplied)  # [~np.isnan(multiplied)])
+    # cov = pd.concat([series, series.shift(lag)], axis=1).cov()
+    # mycov = cov.iloc[1, 0]
+    # assert np.isclose(newcov, mycov)
+    # return newcov
+
+
+@nb.jit()  # nopython=True)
+def update_covariance_Sigma(train_array, old_lag_covariances, lag):
+    lagged_covariances = np.empty(lag)
+    lagged_covariances[:len(old_lag_covariances)] = old_lag_covariances
+    for i in range(len(old_lag_covariances), lag):
+        print('computing covariance at lag', i)
+        # cov = pd.concat([self.train,
+        #                  self.train.shift(i)], axis=1).cov()
+        # mycov = cov.iloc[1, 0]
+        mycov = lag_covariance(train_array, lag=i)
+        if np.isnan(mycov):
+            logger.warning(
+                'Covariance at lag %d for column %s is NaN.' %
+                (i, self.train.name))
+            mycov = 0.
+        lagged_covariances[i] = mycov
+    Sigma = make_Sigma_scalar_AR(lagged_covariances)
+    return lagged_covariances, Sigma
 
 
 class ScalarAutoregressor(BaseAutoregressor):
@@ -37,42 +81,47 @@ class ScalarAutoregressor(BaseAutoregressor):
 
         check_series(train)
         self.train = train
+        assert np.isclose(self.train.mean(), 0., atol=1e-6)
         self.future_lag = future_lag
         self.past_lag = past_lag
-        self.lagged_covariances = []
+        self.lagged_covariances = np.empty(0)
         self.N = 1
 
         self._fit()
 
-    def _fit(self):
-        self._fit_lagged_covariances()
-        self._make_Sigma()
+    # def _fit(self):
+    #     self._fit_Sigma()
+    #     self._make_Sigma()
 
     # @property
     # def lag(self):
     #     return self.future_lag + self.past_lag
 
-    def _fit_lagged_covariances(self):
-        for i in range(len(self.lagged_covariances), self.lag):
-            print('computing covariance lag %d' % i)
-            cov = pd.concat([self.train,
-                             self.train.shift(i)], axis=1).cov()
-            mycov = cov.iloc[1, 0]
-            if np.isnan(mycov):
-                logger.warning(
-                    'Covariance at lag %d for column %s is NaN.' %
-                    (i, self.train.name))
-                mycov = 0.
-            self.lagged_covariances.append(mycov)
+    def _fit(self):
+        self.lagged_covariances, self.Sigma = \
+            update_covariance_Sigma(train_array=self.train.values,
+                                    old_lag_covariances=self.lagged_covariances,
+                                    lag=self.lag)
+        # old_lag_covariances = self.lagged_covariances
+        # self.lagged_covariances = np.empty(self.lag)
+        # self.lagged_covariances[
+        #     :len(old_lag_covariances)] = old_lag_covariances
+        # for i in range(len(old_lag_covariances), self.lag):
+        #     print('computing covariance lag %d' % i)
+        #     # cov = pd.concat([self.train,
+        #     #                  self.train.shift(i)], axis=1).cov()
+        #     # mycov = cov.iloc[1, 0]
+        #     mycov = lag_covariance(self.train.values, lag=i)
+        #     if np.isnan(mycov):
+        #         logger.warning(
+        #             'Covariance at lag %d for column %s is NaN.' %
+        #             (i, self.train.name))
+        #         mycov = 0.
+        #     self.lagged_covariances[i] = mycov
+        # self.Sigma = make_Sigma_scalar_AR(self.lagged_covariances)
 
-    def _make_Sigma(self):
-        self.Sigma = np.block(
-            [[self.lagged_covariances[i]
-              if i > 0 else
-              self.lagged_covariances[-i]
-                for i in range(-j, self.lag - j)]
-                for j in range(self.lag)])
-        assert np.allclose((self.Sigma - self.Sigma.T), 0)
+    # def _make_Sigma(self):
+    #     self.Sigma = make_Sigma_scalar_AR(np.array(self.lagged_covariances))
 
     def test_predict(self, test):
         check_series(test)

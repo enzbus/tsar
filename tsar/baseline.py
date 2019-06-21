@@ -88,8 +88,8 @@ class HarmonicBaseline:
                  weekly_harmonics=0,
                  annual_harmonics=4,
                  trend=False,
-                 pre_gaussianize=False,
-                 post_gaussianize=False):
+                 pre_gaussianize=False):  # ,
+                 # post_gaussianize=False):
         check_series(train)
         self.train = train
 
@@ -98,23 +98,23 @@ class HarmonicBaseline:
         self.annual_harmonics = annual_harmonics
         self.trend = trend
         self.pre_gaussianize = pre_gaussianize
-        self.post_gaussianize = post_gaussianize
+        #self.post_gaussianize = post_gaussianize
 
         self.name = train.name
         self.pre_gaussianization_params = None
         self.train_index_seconds = index_to_seconds(self.train.index)
 
         self._fit_baseline()
-        self._prepare_residuals()
+        # self._prepare_residuals()
 
         # self._baseline = self._predict_baseline(train.index)
 
     def _prepare_residuals(self):
 
-        if self.post_gaussianize:
-            self.post_gaussianization_params = \
-                compute_gaussian_interpolator(
-                    self._residuals(self.train))
+        # if self.post_gaussianize:
+        #     self.post_gaussianization_params = \
+        #         compute_gaussian_interpolator(
+        #             self._residuals(self.train))
 
         self.rmse = 1.
         data_std = np.sqrt((self.residuals(self.train)**2).mean())
@@ -144,22 +144,23 @@ class HarmonicBaseline:
             self._train_baseline(self.train.values)
 
         self.rmse = 1.
+        self._prepare_residuals()
+
+    # def residuals(self, data):
+    #     return (gaussianize(self._residuals(data),
+    #                         *self.post_gaussianization_params)
+    # if self.post_gaussianize else self._residuals(data)) / self.rmse
 
     def residuals(self, data):
-        return (gaussianize(self._residuals(data),
-                            *self.post_gaussianization_params)
-                if self.post_gaussianize else self._residuals(data)) / self.rmse
-
-    def _residuals(self, data):
         check_series(data)
 
         my_data = gaussianize(data,
                               *self.pre_gaussianization_params) \
             if self.pre_gaussianize else data
 
-        return (my_data - self._predict_baseline(data.index))
+        return (my_data - self._predict_baseline(data.index)) / self.rmse
 
-    def _invert_residuals(self, data):
+    def invert_residuals(self, data):
         check_series(data)
 
         plus_baseline = data * self.rmse + self._predict_baseline(data.index)
@@ -168,15 +169,15 @@ class HarmonicBaseline:
                                   *self.pre_gaussianization_params) \
             if self.pre_gaussianize else plus_baseline
 
-    def invert_residuals(self, data):
-        return self._invert_residuals(
-            invert_gaussianize(data, *self.post_gaussianization_params)) \
-            if self.post_gaussianize else self._invert_residuals(data)
+    # def invert_residuals(self, data):
+    #     return self._invert_residuals(
+    #         invert_gaussianize(data, *self.post_gaussianization_params)) \
+    #         if self.post_gaussianize else self._invert_residuals(data)
 
     def baseline(self, index):
         # TODO this should be property, or indexable?
-        return self._invert_residuals(pd.Series(0., index=index,
-                                                name=self.name))
+        return self.invert_residuals(pd.Series(0., index=index,
+                                               name=self.name))
 
     def _train_baseline(self, train_values):
 
@@ -198,8 +199,8 @@ def baseline_autotune(train, test,
                       daily_harmonics=None,
                       weekly_harmonics=None,
                       annual_harmonics=None,
-                      trend=None,
-                      pre_gaussianize=None):
+                      trend=None):  # ,
+                      # pre_gaussianize=None):
 
     train = train.dropna()
     test = test.dropna()
@@ -214,8 +215,8 @@ def baseline_autotune(train, test,
     annual_harmonics = np.arange(
         50) if annual_harmonics is None else [annual_harmonics]
     trend = [False, True] if trend is None else [trend]
-    pre_gaussianize = [
-        False, True] if pre_gaussianize is None else [pre_gaussianize]
+    # pre_gaussianize = [
+    #     False, True] if pre_gaussianize is None else [pre_gaussianize]
 
     baseline = HarmonicBaseline(train, 0, 0, 0, 0, False)
 
@@ -223,13 +224,13 @@ def baseline_autotune(train, test,
             daily_harmonics,
             weekly_harmonics,
             annual_harmonics,
-            trend,
-            pre_gaussianize):
+            trend):  # ,
+        # pre_gaussianize):
         baseline.daily_harmonics = daily_harmonics
         baseline.weekly_harmonics = weekly_harmonics
         baseline.annual_harmonics = annual_harmonics
         baseline.trend = trend
-        baseline.pre_gaussianize = pre_gaussianize
+        #baseline.pre_gaussianize = pre_gaussianize
         baseline._fit_baseline()
 
         return np.sqrt(((test - baseline.baseline(
@@ -239,8 +240,8 @@ def baseline_autotune(train, test,
                              [daily_harmonics,
                               weekly_harmonics,
                               annual_harmonics,
-                              trend,
-                              pre_gaussianize],
+                              trend],  # ,
+                             # pre_gaussianize],
                              num_steps=2)
 
     print('optimal params: %s' % res)
@@ -251,7 +252,7 @@ def baseline_autotune(train, test,
 
 def AutotunedBaseline(train, test, **kwargs):
     print('autotuning baseline for column %s' % train.name)
-    if len(train.dropna().value_counts()) == 1:
-        kwargs['pre_gaussianize'] = False
+    # if len(train.dropna().value_counts()) == 1:
+    #     kwargs['pre_gaussianize'] = False
     params = baseline_autotune(train.dropna(), test.dropna(), **kwargs)
     return HarmonicBaseline(train.dropna(), *params)

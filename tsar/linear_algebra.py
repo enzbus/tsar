@@ -62,6 +62,9 @@ def schur_complement_matrix(matrix_with_na,
     else:
         B = Sigma[null_mask].T[~null_mask].T
         C = Sigma[~null_mask].T[~null_mask]
+        if hasattr(C, 'todense'):
+            print('converting C to dense, probably bug!!')
+            C = C.todense()
         inv_C = np.linalg.inv(C)
 
     expected_X = B @ inv_C @ Y.T

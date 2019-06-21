@@ -25,12 +25,15 @@ class TestScalarAR(unittest.TestCase):
         data = data.rolling(5).max()
 
         train = data.iloc[:-T // 2]
+        mean = train.mean()
+        train -= mean
         test = data.iloc[-T // 2:]
+        test -= mean
 
         opt_lag, = \
             autotune_scalar_autoregressor(train, test, 5)
 
-        self.assertTrue(opt_lag == 1)
+        self.assertTrue(opt_lag == 13)
 
     def test_scalar_ar_2(self):
 
@@ -45,7 +48,10 @@ class TestScalarAR(unittest.TestCase):
         data = data.rolling(5).mean()
 
         train = data.iloc[:-T // 2]
+        mean = train.mean()
+        train -= mean
         test = data.iloc[-T // 2:]
+        test -= mean
 
         opt_lag, = \
             autotune_scalar_autoregressor(train, test, 5, max_past_lag=10)
@@ -65,7 +71,10 @@ class TestScalarAR(unittest.TestCase):
         data -= data.rolling(5).mean()
 
         train = data.iloc[:-T // 2]
+        mean = train.mean()
+        train -= mean
         test = data.iloc[-T // 2:]
+        test -= mean
 
         opt_lag, = \
             autotune_scalar_autoregressor(train, test, 5, max_past_lag=10)

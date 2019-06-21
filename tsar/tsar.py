@@ -27,6 +27,8 @@ from .autoregressive import AutoRegressive  # , Autotune_AutoRegressive
 from .utils import RMSE, check_timeseries
 from .scalar_autoregressor import autotune_scalar_autoregressor, ScalarAutoregressor
 from .low_rank_autoregressor import *
+from .low_rank_plus_block_diagonal_AR import LowRankPlusBlockDiagonalAR, \
+    autotune_low_rank_plus_block_diag_ar
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +94,8 @@ class Model:
                             self.test_residual)
         pass
         # self._fit_AR(self.train_residual, self.test_residual)
+        self._fit_low_rank_plus_block_diag_AR(self.train_residual,
+                                              self.test_residual)
         pass
 
         # TODO refit with full data
@@ -219,14 +223,32 @@ class Model:
             #     )
             # else:
             print('fitting scalar AR for column %s' % column)
-            past_lag, = autotune_scalar_autoregressor(
-                train[column], test[column],
-                future_lag=self.future_lag,
-                max_past_lag=self.max_past_lag)
+            # past_lag, = autotune_scalar_autoregressor(
+            #     train[column], test[column],
+            #     future_lag=self.future_lag,
+            #     past_lag = self.past_lag
+            #     max_past_lag=self.max_past_lag)
             self._scalar_ARs[column] = ScalarAutoregressor(
                 train[column],
                 future_lag=self.future_lag,
-                past_lag=past_lag)
+                past_lag=self.past_lag)
+
+    def _fit_low_rank_plus_block_diag_AR(self, train, test):
+
+        scalar_sigma_arrays = [self._scalar_ARs[col].lagged_covariances
+                               for col in self._columns]
+
+        P, past_lag = autotune_low_rank_plus_block_diag_ar(
+            train,
+            test,
+            scalar_sigma_arrays,
+            self.future_lag,
+            self.past_lag,
+            self.P)
+
+        self.ar_model = LowRankPlusBlockDiagonalAR(train, scalar_sigma_arrays,
+                                                   P, self.future_lag,
+                                                   past_lag)
 
     @property
     def scalar_RMSEs(self):
@@ -260,13 +282,13 @@ class Model:
     def lag(self):
         return self.ar_model.lag
 
-    def _fit_AR(self, train, test):
-        self.ar_model = Autotune_AutoRegressive(
-            train,
-            test,
-            self.future_lag,
-            self.P,
-            self.past_lag)
+    # def _fit_AR(self, train, test):
+    #     self.ar_model = Autotune_AutoRegressive(
+    #         train,
+    #         test,
+    #         self.future_lag,
+    #         self.P,
+    #         self.past_lag)
 
     def _fit_low_rank_AR(self, train, test):
 

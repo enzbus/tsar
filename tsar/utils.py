@@ -1,5 +1,5 @@
 """
-Copyright (C) Enzo Busseti 2019.
+Copyright © Enzo Busseti 2019.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -20,6 +20,9 @@ import pandas as pd
 import numba as nb
 import logging
 logger = logging.getLogger(__name__)
+
+# THESE 3 FUNCTIONS WILL GO
+###
 
 
 def check_series(data):
@@ -44,3 +47,25 @@ def RMSE(a, b):
     diff = a - b
     diff = diff[~np.isnan(diff)]
     return np.sqrt(np.mean(diff**2))
+
+###
+
+
+def check_multidimensional_time_series(data, frequency=None, columns=None):
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError(
+            'Data must be a pandas DataFrame')
+    if not isinstance(data.index, pd.DatetimeIndex):
+        raise TypeError(
+            'Data must be indexed by a pandas DatetimeIndex.')
+    if data.index.freq is None:
+        raise ValueError('Data index must have a frequency. ' +
+                         'Try using the pandas.DataFrame.asfreq method.')
+    if not frequency is None and not (data.index.freq == frequency):
+        raise ValueError('Data index frequency is not correct.')
+    if not columns is None and not np.all(data.columns == columns):
+        raise ValueError('Data columns are not correct.')
+
+
+def DataFrameRMSE(df1, df2):
+    return np.sqrt(((df1 - df2)**2).mean())
