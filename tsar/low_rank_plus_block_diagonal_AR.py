@@ -1,5 +1,5 @@
 """
-Copyright (C) Enzo Busseti 2019.
+Copyright © Enzo Busseti 2019.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 
 
 # from .utils import check_series
-from .greedy_grid_search_new import greedy_grid_search
-from .linear_algebra_new import iterative_denoised_svd
+from .greedy_grid_search import greedy_grid_search
+from .linear_algebra import iterative_denoised_svd
 # from .base_autoregressor import BaseAutoregressor
 
 
@@ -191,7 +191,7 @@ def make_rmse_mask(columns, ignore_prediction_columns, lag):
 
 
 def fit_low_rank_plus_block_diagonal_AR(train,
-                                        test=None,
+                                        test,
                                         future_lag,
                                         past_lag,
                                         rank,
@@ -200,8 +200,9 @@ def fit_low_rank_plus_block_diagonal_AR(train,
 
     if test is not None:
 
-        past_lag_range = pass
-        rank_range = pass
+        # TODO FIX
+        past_lag_range = XXX
+        rank_range = XXX
 
         cached_lag_covariances = [[] for i in range(train.shape[1])]
         cached_svd = {}
@@ -212,15 +213,15 @@ def fit_low_rank_plus_block_diagonal_AR(train,
             lag = past_lag + future_lag
 
             V, S, S_inv, D_blocks, D_matrix, D_inv,\
-                cached_lag_covariances, cached_svd,
+                cached_lag_covariances, cached_svd, \
                 cached_factor_lag_covariances = \
-                    _fit_low_rank_plus_block_diagonal_ar(
-                        train,
-                        lag,
-                        rank,
-                        cached_lag_covariances,
-                        cached_svd,
-                        cached_factor_lag_covariances)
+                _fit_low_rank_plus_block_diagonal_ar(
+                    train,
+                    lag,
+                    rank,
+                    cached_lag_covariances,
+                    cached_svd,
+                    cached_factor_lag_covariances)
 
             test_flattened = \
                 make_sliced_flattened_matrix(test, lag)

@@ -67,7 +67,7 @@ def woodbury_inverse(V, S_inv, D_inv):
     return D_inv - D_inv @ (V @ np.linalg.inv(internal) @ V.T) @ D_inv
 
 
-def symm_slice_blocks(blocks, blocks_indexes, mask):
+def symm_slice_blocks(blocks, block_indexes, mask):
     # TODO jit
     logger.debug('Slicing block matrix.')
 
@@ -100,7 +100,7 @@ def symm_low_rank_plus_block_diag_schur(V, S, S_inv,
     C_inv = woodbury_inverse(sliced_V, S_inv, sliced_D_inv)
 
     B = V[~known_mask, :] @ S @ sliced_V.T + \
-        D_matrix[~known_mask, known_mask]
+        D_matrix[~known_mask].T[known_mask].T
 
     BC_inv = B @ C_inv
 
@@ -110,67 +110,3 @@ def symm_low_rank_plus_block_diag_schur(V, S, S_inv,
         return conditional_expect, BC_inv @ B.T
 
     return conditional_expect
-
-
-# class SymmetricLowRankPlusBlockDiagonal:
-#     """We represent the matrix A = V @ S @ V^T + D
-#     Where:
-#     U has dimensions (n, k),
-#     S has dimensions (k, k),
-#     V has dimensions (k, n)
-#     D has dimensions (n, n) and is block diagonal.
-
-#     We provide methods for:
-#     - slicing, which returns a LowRankPlusSparse
-#     - (A @ x) matrix multiplication
-#     - schur complement
-#     """
-
-#     def __init__(self, U, S, V, D):
-#         self.U = U if not sp.issparse(U) else U.tocsc()
-#         self.S = S if not sp.issparse(S) else S.tocsc()
-#         self.V = V if not sp.issparse(V) else V.tocsc()
-#         self.D = D.tocsc()
-
-#         assert U.shape[1] == S.shape[0]
-#         assert S.shape[1] == V.shape[0]
-#         assert D.shape[0] == U.shape[0]
-#         assert D.shape[1] == V.shape[1]
-
-#     @property
-#     def shape(self):
-#         return self.D.shape
-
-#     def __repr__(self):
-#         return "Low-rank plus sparse of shape (%d, %d)" % (self.shape)
-
-#     @property
-#     def T(self):
-#         return LowRankPlusSparse(self.V.T, self.S.T,
-#                                  self.U.T, self.D.T)
-
-#     def __getitem__(self, slices_or_indexes):
-#         if isinstance(slices_or_indexes, tuple):
-#             # this does not cover all corner cases
-#             slice_1, slice_2 = slices_or_indexes
-#         else:
-#             slice_1 = slices_or_indexes
-#             slice_2 = slice(None)
-
-#         #print(slice_1, slice_2)
-
-#         return LowRankPlusSparse(
-#             self.U.__getitem__(slice_1),
-#             self.S,
-#             self.V.__getitem__((slice(None), slice_2)),
-#             self.D.__getitem__(slice_1).T.__getitem__(slice_2).T
-#         )
-
-#     def __matmul__(self, other):
-#         return self.D @ other + self.U @ (self.S @ (self.V @ other))
-
-#     def __rmatmul__(self, other):
-#         return other @ self.D + ((other @ self.U) @ self.S) @ self.V
-
-#     def todense(self):
-#         return self.D.todense() + self.U @ self.S @ self.V

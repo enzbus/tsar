@@ -21,11 +21,13 @@ import numba as nb
 import logging
 logger = logging.getLogger(__name__)
 
-from .greedy_grid_search_new import greedy_grid_search
+from .greedy_grid_search import greedy_grid_search
 
 
 @nb.jit(nopython=True)
-def featurize_index_for_baseline(seconds, periods, trend=False):
+def featurize_index_for_baseline(seconds: np.ndarray,
+                                 periods: np.ndarray,
+                                 trend: bool =False) -> np.ndarray:
     X = np.zeros((len(seconds), 1 + 2 * len(periods) + trend))
     for i, period in enumerate(periods):  # in seconds
         X[:, 2 * i] = np.sin(2 * np.pi * seconds / period)
@@ -90,23 +92,33 @@ def compute_baseline(index,
     return predict_with_baseline(X, baseline_fit_result)
 
 
-def data_to_residual(data: pd.Series, params: dict) ->: pd.Series:
+def data_to_residual(data: pd.Series, std: float,
+                     daily_harmonics: int,
+                     weekly_harmonics: int,
+                     annual_harmonics: int,
+                     trend: bool,
+                     baseline_fit_result: np.ndarray) -> pd.Series:
     return (data - compute_baseline(data.index,
-                                    params['daily_harmonics'],
-                                    params['weekly_harmonics'],
-                                    params['annual_harmonics'],
-                                    params['trend'],
-                                    params['baseline_fit_result'])) / params['std']
+                                    daily_harmonics,
+                                    weekly_harmonics,
+                                    annual_harmonics,
+                                    trend,
+                                    baseline_fit_result)) / std
 
 
-def residual_to_data(residual: pd.Series, params: dict) ->: pd.Series:
-    return data * params['std'] + compute_baseline(
-        data.index,
-        params['daily_harmonics'],
-        params['weekly_harmonics'],
-        params['annual_harmonics'],
-        params['trend'],
-        params['baseline_fit_result'])
+def residual_to_data(residual: pd.Series,
+                     std: float,
+                     daily_harmonics: int,
+                     weekly_harmonics: int,
+                     annual_harmonics: int,
+                     trend: bool,
+                     baseline_fit_result: np.ndarray) -> pd.Series:
+    return residual * std + compute_baseline(residual.index,
+                                             daily_harmonics,
+                                             weekly_harmonics,
+                                             annual_harmonics,
+                                             trend,
+                                             baseline_fit_result)
 
 
 def _fit_baseline(data,
@@ -125,7 +137,11 @@ def _fit_baseline(data,
     return fit_seasonal_baseline(X, data.values)
 
 
-def fit_baseline(train, test=None, params):
+def fit_baseline(train, test,
+                 daily_harmonics=None,
+                 weekly_harmonics=None,
+                 annual_harmonics=None,
+                 trend=None):
 
     train = train.dropna()
 
@@ -135,20 +151,20 @@ def fit_baseline(train, test=None, params):
         logger.debug('Autotuning baseline on %d train and %d test points' %
                      (len(train), len(test)))
 
-        daily_harmonics_range = np.arange(24) if 'daily_harmonics' \
-            not in params else [params['daily_harmonics']]
-        weekly_harmonics_range = np.arange(6) if 'weekly_harmonics'
-            not in params else [params['weekly_harmonics']]
-        annual_harmonics_range = np.arange(50) if 'annual_harmonics'
-            not in params else [params['annual_harmonics']]
-        trend = [False, True] if 'trend' not in params else [params['trend']]
+        daily_harmonics_range = np.arange(24) if daily_harmonics \
+            is None else [daily_harmonics]
+        weekly_harmonics_range = np.arange(6) if weekly_harmonics \
+            is None else [weekly_harmonics]
+        annual_harmonics_range = np.arange(50) if annual_harmonics \
+            is None else [annual_harmonics]
+        trend_range = [False, True] if trend is None else [trend]
 
         def test_RMSE(
                 daily_harmonics,
                 weekly_harmonics,
                 annual_harmonics,
                 trend):
-            baseline_fit_result = _fit_baseline(data,
+            baseline_fit_result = _fit_baseline(train,
                                                 daily_harmonics,
                                                 weekly_harmonics,
                                                 annual_harmonics,
@@ -163,24 +179,29 @@ def fit_baseline(train, test=None, params):
                     trend,
                     baseline_fit_result))**2).mean())
 
-        optimal_rmse, (params['daily_harmonics'],
-                       params['weekly_harmonics'],
-                       params['annual_harmonics'],
-                       params['trend']) = greedy_grid_search(test_RMSE,
-                                                             [daily_harmonics,
-                                                              weekly_harmonics,
-                                                              annual_harmonics,
-                                                              trend],
-                                                             num_steps=2)
+        optimal_rmse, (daily_harmonics,
+                       weekly_harmonics,
+                       annual_harmonics,
+                       trend) = greedy_grid_search(test_RMSE,
+                                                   [daily_harmonics_range,
+                                                    weekly_harmonics_range,
+                                                    annual_harmonics_range,
+                                                    trend_range],
+                                                   num_steps=2)
 
-    params['baseline_fit_result'] =\
-        _fit_baseline(train, params['daily_harmonics'],
-                      params['weekly_harmonics'],
-                      params['annual_harmonics'],
-                      params['trend'])
+    baseline_fit_result = _fit_baseline(train, daily_harmonics,
+                                        weekly_harmonics,
+                                        annual_harmonics,
+                                        trend)
 
-    params['std'] = 1.
-    params['std'] = np.std(data_to_residual(train, params))
+    std = np.std(data_to_residual(train,
+                                  std=1.,
+                                  daily_harmonics=daily_harmonics,
+                                  weekly_harmonics=weekly_harmonics,
+                                  annual_harmonics=annual_harmonics,
+                                  trend=trend,
+                                  baseline_fit_result=baseline_fit_result))
 
-    if test is not None:
-        return optimal_rmse
+    return std, daily_harmonics, weekly_harmonics, \
+        annual_harmonics, trend, baseline_fit_result, \
+        optimal_rmse if test is not None else None

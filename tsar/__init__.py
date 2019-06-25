@@ -16,14 +16,15 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import pandas as pd
+import logging
 from typing import Optional, List, Any
 logger = logging.getLogger(__name__)
 
 
-from .baseline_new import fit_baseline, data_to_residual, residual_to_data
-from .low_rank_plus_block_diagonal_AR_new import fit_low_rank_plus_block_diagonal_AR
+from .baseline import fit_baseline, data_to_residual, residual_to_data
+from .low_rank_plus_block_diagonal_AR import fit_low_rank_plus_block_diagonal_AR
 from .utils import DataFrameRMSE, check_multidimensional_time_series
-from .linear_algebra_new import schur_complement_solve
+from .linear_algebra import *
 
 
 class TSAR:
@@ -35,7 +36,7 @@ class TSAR:
                  train_test_split: float = 2 / 3,
                  baseline_params_columns: dict = {},
                  available_data_lags_columns: dict = {},
-                 ignore_prediction_columns: List[Any]):
+                 ignore_prediction_columns: List[Any] = []):
 
         check_multidimensional_time_series(data)
 
@@ -96,9 +97,12 @@ class TSAR:
         # TODO parallelize
         for col in self.columns:
             logger.debug('Fitting baseline on column %s.' % col)
-            self.baseline_RMSE[col] if test is not None else _ =\
-                fit_baseline(train[col], test[col] if test is not None else None,
-                             self.baseline_params_columns[col])
+            test_rmse = fit_baseline(
+                train[col],
+                test[col] if test is not None else None,
+                self.baseline_params_columns[col])
+            if test is not None:
+                self.baseline_RMSE[col] = test_rmse
 
     def _fit_low_rank_plus_block_diagonal_AR(
             self, train: pd.DataFrame,
@@ -163,7 +167,7 @@ class TSAR:
         predicted_vector = schur_complement_solve(
             residual_vectorized, self.Sigma)
         predicted_residuals = pd.DataFrame(
-            predicted_vector.reshape(residual_slice.shape, order='F')
+            predicted_vector.reshape(residual_slice.shape, order='F'),
             index=residual_slice.index,
             columns=residual_slice.columns)
 

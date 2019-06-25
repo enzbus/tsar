@@ -21,35 +21,6 @@ import numba as nb
 import logging
 logger = logging.getLogger(__name__)
 
-# THESE 3 FUNCTIONS WILL GO
-###
-
-
-def check_series(data):
-    if not isinstance(data, pd.Series):
-        raise ValueError(
-            'Data must be a pandas Series')
-
-
-def check_timeseries(data):
-    if not isinstance(data, pd.DataFrame):
-        raise ValueError(
-            'Train data must be a pandas DataFrame')
-    if not isinstance(data.index, pd.DatetimeIndex):
-        raise ValueError(
-            'Train data must be indexed by a pandas DatetimeIndex.')
-    if data.index.freq is None:
-        raise ValueError('Train data index must have a frequency. ' +
-                         'Try using the pandas.DataFrame.asfreq method.')
-
-
-def RMSE(a, b):
-    diff = a - b
-    diff = diff[~np.isnan(diff)]
-    return np.sqrt(np.mean(diff**2))
-
-###
-
 
 def check_multidimensional_time_series(data, frequency=None, columns=None):
     if not isinstance(data, pd.DataFrame):
