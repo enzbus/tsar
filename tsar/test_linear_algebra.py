@@ -79,15 +79,15 @@ class TestInverse(TestCase):
 
         for m, k in [(10, 3), (20, 0), (10, 1), (0, 10)]:
 
-            V = np.random.randn(m, k)
+            V = sp.csc_matrix(np.random.randn(m, k))
             S = np.random.randn(k, k)
-            S = S@S.T
+            S = sp.csc_matrix(S@S.T)
             D = np.random.randn(m, m)
-            D = D@D.T
+            D = sp.csc_matrix(D@D.T)
 
-            true_inv = np.linalg.inv(V @ S @ V.T + D)
-            my_inv = woodbury_inverse(V, np.linalg.inv(S),
-                                      np.linalg.inv(D))
+            true_inv = np.linalg.inv((V @ S @ V.T + D).todense())
+            my_inv = woodbury_inverse(V, np.linalg.inv(S.todense()),
+                                      np.linalg.inv(D.todense()))
 
             self.assertTrue(np.allclose(true_inv, my_inv))
 

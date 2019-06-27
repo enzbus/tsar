@@ -74,6 +74,8 @@ def greedy_grid_search(function,
         if tuple(old_current_counter) == tuple(current_counter):
             logger.debug('optimal function value = %f' %
                          results[tuple(current_counter)])
+            logger.debug('optimal function parameters = %s' %
+                         str(tuple(current_counter)))
             return results[tuple(current_counter)], \
                 [param[current_counter[i]]
                  for i, param in
