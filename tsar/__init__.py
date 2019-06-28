@@ -27,6 +27,11 @@ from .utils import DataFrameRMSE, check_multidimensional_time_series
 from .linear_algebra import *
 
 
+# TODOs
+# - cache results of vector autoregression (using hash(array.tostring()))
+# - same for results of matrix Schur
+
+
 class TSAR:
 
     def __init__(self, data: pd.DataFrame,
@@ -60,17 +65,20 @@ class TSAR:
             if col not in self.available_data_lags_columns:
                 self.available_data_lags_columns[col] = 0
 
+        self.fit(refit_with_whole_data=True)
+        # del self.data
+
+    def fit(self, refit_with_whole_data=True):
         logger.debug('Fitting model on train and test data.')
         self._fit_ranges(self.train)
         self._fit_baselines(self.train, self.test)
         self._fit_low_rank_plus_block_diagonal_AR(self.train, self.test)
 
-        logger.debug('Fitting model on whole data.')
-        self._fit_ranges(self.data)
-        self._fit_baselines(self.data)
-        self._fit_low_rank_plus_block_diagonal_AR(self.data)
-
-        # del self.data
+        if refit_with_whole_data:
+            logger.debug('Fitting model on whole data.')
+            self._fit_ranges(self.data)
+            self._fit_baselines(self.data)
+            self._fit_low_rank_plus_block_diagonal_AR(self.data)
 
     @property
     def train(self):

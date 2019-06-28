@@ -57,14 +57,27 @@ def make_block_indexes(blocks):
     return block_indexes
 
 
-def woodbury_inverse(V, S_inv, D_inv):
+def woodbury_inverse(V: sp.csc.csc_matrix,
+                     S_inv: np.matrix,
+                     D_inv: np.matrix):
     """ https://en.wikipedia.org/wiki/Woodbury_matrix_identity
 
     Compute (V @ S @ V.T + D)^-1.
     """
+    assert V.__class__ is sp.csc.csc_matrix
+    assert (S_inv.__class__ is np.matrix) or (S_inv.__class__ is np.ndarray)
+    assert D_inv.__class__ is np.matrix
+
     logger.debug('Solving Woodbury inverse.')
+    logger.debug('Building internal matrix.')
     internal = S_inv + V.T @ D_inv @ V
-    return D_inv - D_inv @ (V @ np.linalg.inv(internal) @ V.T) @ D_inv
+    logger.debug('Inverting internal matrix.')
+    intinv = np.linalg.inv(
+        internal.todense() if hasattr(
+            internal,
+            'todense') else internal)
+    logger.debug('Building inverse.')
+    return D_inv - D_inv @ (V @ intinv @ V.T) @ D_inv
 
 
 def symm_slice_blocks(blocks, block_indexes, mask):
@@ -79,8 +92,12 @@ def symm_slice_blocks(blocks, block_indexes, mask):
         for i, block in enumerate(blocks)]
 
 
-def symm_low_rank_plus_block_diag_schur(V, S, S_inv,
-                                        D_blocks, D_blocks_indexes, D_matrix,
+def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
+                                        S: np.matrix,
+                                        S_inv: np.matrix,
+                                        D_blocks,
+                                        D_blocks_indexes,
+                                        D_matrix: sp.csc.csc_matrix,
                                         known_mask, known_matrix,
                                         return_conditional_covariance=False):
     """Let Sigma = V @ S @ V^T + D,
@@ -92,18 +109,36 @@ def symm_low_rank_plus_block_diag_schur(V, S, S_inv,
     """
     logger.debug('Solving Schur complement of low-rank plus block diagonal.')
 
+    # TODO fix upstream
+    #V = sp.csc_matrix(V)
+    assert V.__class__ is sp.csc.csc_matrix
+    assert (S.__class__ is np.matrix) or (S.__class__ is np.ndarray)
+    #S = S.todense() if hasattr(S, 'todense') else S
+    # TODO this is not needed I guess, rethink everything here!
+    assert (S_inv.__class__ is np.matrix) or (S_inv.__class__ is np.ndarray)
+    assert D_matrix.__class__ is sp.csc.csc_matrix
+
+    #D_matrix = sp.csc_matrix(D_matrix)
+
     sliced_V = V[known_mask, :]
     sliced_D_blocks = symm_slice_blocks(D_blocks, D_blocks_indexes, known_mask)
     sliced_D_inv = sp.block_diag([np.linalg.inv(block) for
-                                  block in sliced_D_blocks])
+                                  block in sliced_D_blocks]).todense()
 
-    C_inv = woodbury_inverse(sliced_V, S_inv, sliced_D_inv)
+    C_inv = woodbury_inverse(V=sliced_V,
+                             S_inv=S_inv,
+                             D_inv=sliced_D_inv)
 
+    logger.debug('Building B matrix')
     B = V[~known_mask, :] @ S @ sliced_V.T + \
         D_matrix[~known_mask].T[known_mask].T
 
+    assert C_inv.__class__ is np.matrix
+    assert B.__class__ is np.matrix
+    logger.debug('Building B @ C^-1')
     BC_inv = B @ C_inv
 
+    logger.debug('Computing conditional expectation')
     conditional_expect = BC_inv @ known_matrix.T
 
     if return_conditional_covariance:
