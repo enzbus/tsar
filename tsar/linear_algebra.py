@@ -68,6 +68,8 @@ def woodbury_inverse(V: sp.csc.csc_matrix,
     assert (S_inv.__class__ is np.matrix) or (S_inv.__class__ is np.ndarray)
     assert D_inv.__class__ is np.matrix
 
+    V = V.todense()
+
     logger.debug('Solving Woodbury inverse.')
     logger.debug('Building internal matrix.')
     internal = S_inv + V.T @ D_inv @ V
@@ -77,7 +79,8 @@ def woodbury_inverse(V: sp.csc.csc_matrix,
             internal,
             'todense') else internal)
     logger.debug('Building inverse.')
-    return D_inv - D_inv @ (V @ intinv @ V.T) @ D_inv
+    D_invV = (D_inv @ V)
+    return D_inv - D_invV @ intinv @ D_invV.T
 
 
 def symm_slice_blocks(blocks, block_indexes, mask):
@@ -142,6 +145,7 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
     conditional_expect = BC_inv @ known_matrix.T
 
     if return_conditional_covariance:
-        return conditional_expect, BC_inv @ B.T
+        return conditional_expect, V[~known_mask, :] @ S @ V[~known_mask, :].T + \
+            D_matrix[~known_mask].T[~known_mask].T - BC_inv @ B.T
 
     return conditional_expect

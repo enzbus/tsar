@@ -184,7 +184,8 @@ class TSAR:
     def predict(self,
                 data: pd.DataFrame,
                 prediction_time:
-                Optional[pd.Timestamp] = None) -> pd.DataFrame:
+                Optional[pd.Timestamp] = None,
+                return_sigmas=False) -> pd.DataFrame:
         check_multidimensional_time_series(data, self.frequency, self.columns)
 
         if prediction_time is None:
@@ -201,14 +202,50 @@ class TSAR:
         prediction_slice = data.reindex(prediction_index)
         residual_slice = self._residual(prediction_slice)
         residual_vectorized = residual_slice.values.flatten(order='F')
-        predicted_vector = schur_complement_solve(
-            residual_vectorized, self.Sigma)
+
+        # TODO move up
+        self.D_blocks_indexes = make_block_indexes(self.D_blocks)
+        known_mask = ~np.isnan(residual_vectorized)
+        res = \
+            symm_low_rank_plus_block_diag_schur(
+                V=self.V,
+                S=self.S,
+                S_inv=self.S_inv,
+                D_blocks=self.D_blocks,
+                D_blocks_indexes=self.D_blocks_indexes,
+                D_matrix=self.D_matrix,
+                known_mask=known_mask,
+                known_matrix=residual_vectorized[known_mask],
+                return_conditional_covariance=return_sigmas)
+        if return_sigmas:
+            predicted, Sigma = res
+            sigval = np.zeros(len(residual_vectorized))
+            sigval[~known_mask] = np.diag(Sigma)
+            sigma = pd.DataFrame(sigval.reshape(residual_slice.shape,
+                                                order='F'),
+                                 index=residual_slice.index,
+                                 columns=residual_slice.columns)
+            for col in sigma.columns:
+                sigma[col] *= self.baseline_results_columns[col]['std']
+
+        else:
+            predicted = res
+
+        # TODO fix
+        residual_vectorized[~known_mask] = np.array(predicted).flatten()
+        # residual_vectorized[~known_mask]
+
+        # schur_complement_solve(
+        #     residual_vectorized, self.Sigma)
         predicted_residuals = pd.DataFrame(
-            predicted_vector.reshape(residual_slice.shape, order='F'),
+            residual_vectorized.reshape(residual_slice.shape, order='F'),
             index=residual_slice.index,
             columns=residual_slice.columns)
 
-        return self._invert_residual(predicted_residuals)
+        if return_sigmas:
+            return self._invert_residual(predicted_residuals), sigma
+        else:
+            return self._invert_residual(predicted_residuals)
 
     def baseline(self, prediction_window: pd.DatetimeIndex) -> pd.DataFrame:
         return self._invert_residual(pd.DataFrame(0., index=prediction_window,
