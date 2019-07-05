@@ -145,6 +145,11 @@ def fit_baseline(train, test,
 
     train = train.dropna()
 
+    if not len(train):
+        logger.warning(f'Train column {train.name} is all NaNs, returning null baseline.')
+        return 1., 0, 0, 0, False, np.array([0.]), \
+            np.sqrt((test.dropna()**2).mean()) if test is not None else None
+
     if test is not None:
         test = test.dropna()
 

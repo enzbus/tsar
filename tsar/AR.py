@@ -36,55 +36,55 @@ from .utils import DataFrameRMSE
 # from .base_autoregressor import BaseAutoregressor
 
 
-@nb.jit(nopython=True)
-def make_Sigma_scalar_AR(lagged_covariances: List[float]):
-    lag = len(lagged_covariances)
-    Sigma = np.empty((lag, lag))
-    for i in range(lag):
-        for k in range(-i, lag - i):
-            Sigma[i, k + i] = lagged_covariances[
-                k] if k > 0 else lagged_covariances[-k]
-    # assert np.allclose((Sigma - Sigma.T), 0)
-    return Sigma
+# @nb.jit(nopython=True)
+# def make_Sigma_scalar_AR(lagged_covariances: List[float]):
+#     lag = len(lagged_covariances)
+#     Sigma = np.empty((lag, lag))
+#     for i in range(lag):
+#         for k in range(-i, lag - i):
+#             Sigma[i, k + i] = lagged_covariances[
+#                 k] if k > 0 else lagged_covariances[-k]
+#     # assert np.allclose((Sigma - Sigma.T), 0)
+#     return Sigma
+#
+#
+# @nb.jit(nopython=True)
+# def lag_covariance(array: np.ndarray, lag: int):
+#     # shifted = np.shift(series, lag)
+#     multiplied = array[lag:] * array[:len(array) - lag]
+#     return np.nanmean(multiplied)  # [~np.isnan(multiplied)])
+#     # cov = pd.concat([series, series.shift(lag)], axis=1).cov()
+#     # mycov = cov.iloc[1, 0]
+#     # assert np.isclose(newcov, mycov)
+#     # return newcov
 
 
-@nb.jit(nopython=True)
-def lag_covariance(array: np.ndarray, lag: int):
-    # shifted = np.shift(series, lag)
-    multiplied = array[lag:] * array[:len(array) - lag]
-    return np.nanmean(multiplied)  # [~np.isnan(multiplied)])
-    # cov = pd.concat([series, series.shift(lag)], axis=1).cov()
-    # mycov = cov.iloc[1, 0]
-    # assert np.isclose(newcov, mycov)
-    # return newcov
-
-
-@nb.jit()  # nopython=True)
-def fit_AR(
-        train_array: np.ndarray,
-        cached_lag_covariances: List[float],
-        lag: int):
-    logger.info('Train array has mean %f and std %f' % (np.mean(train_array),
-                                                        np.std(train_array)))
-
-    lagged_covariances = np.empty(lag)
-    lagged_covariances[:len(cached_lag_covariances)] = \
-        cached_lag_covariances[:lag]
-    for i in range(len(cached_lag_covariances), lag):
-        logger.debug('computing covariance at lag %d' % i)
-        # cov = pd.concat([self.train,
-        #                  self.train.shift(i)], axis=1).cov()
-        # mycov = cov.iloc[1, 0]
-        mycov = lag_covariance(train_array, lag=i)
-        if np.isnan(mycov):
-            logger.warning(
-                'Covariance at lag %dis NaN.' %
-                (i))
-            mycov = 0.
-        logger.debug('result is %f' % mycov)
-        lagged_covariances[i] = mycov
-    Sigma = make_Sigma_scalar_AR(lagged_covariances)
-    return lagged_covariances, Sigma
+# @nb.jit()  # nopython=True)
+# def fit_AR(
+#         train_array: np.ndarray,
+#         cached_lag_covariances: List[float],
+#         lag: int):
+#     logger.info('Train array has mean %f and std %f' % (np.mean(train_array),
+#                                                         np.std(train_array)))
+#
+#     lagged_covariances = np.empty(lag)
+#     lagged_covariances[:len(cached_lag_covariances)] = \
+#         cached_lag_covariances[:lag]
+#     for i in range(len(cached_lag_covariances), lag):
+#         logger.debug('computing covariance at lag %d' % i)
+#         # cov = pd.concat([self.train,
+#         #                  self.train.shift(i)], axis=1).cov()
+#         # mycov = cov.iloc[1, 0]
+#         mycov = lag_covariance(train_array, lag=i)
+#         if np.isnan(mycov):
+#             logger.warning(
+#                 'Covariance at lag %dis NaN.' %
+#                 (i))
+#             mycov = 0.
+#         logger.debug('result is %f' % mycov)
+#         lagged_covariances[i] = mycov
+#     Sigma = make_Sigma_scalar_AR(lagged_covariances)
+#     return lagged_covariances, Sigma
 
 
 @nb.jit(nopython=True)
@@ -97,22 +97,25 @@ def make_sliced_flattened_matrix(data_table: np.ndarray, lag: int):
     return result
 
 
-def fit_per_column_AR(train_table: pd.DataFrame,
-                      cached_lag_covariances: List[float], lag: int):
-    logger.info('Building AR models for %d columns, with %d samples each' %
-                (train_table.shape[1], train_table.shape[0])
-                )
-
-    Sigmas = []
-    # TODO parallelize
-    for i in range(train_table.shape[1]):
-        logger.debug(
-            'Building AR model for column %s' %
-            train_table.columns[i])
-        cached_lag_covariances[i], Sigma = fit_AR(
-            train_table.iloc[:, i].values, cached_lag_covariances[i], lag)
-        Sigmas.append(Sigma)
-    return Sigmas
+# def fit_per_column_AR(train_table: pd.DataFrame,
+#                       cached_lag_covariances: List[float], lag: int):
+#     logger.info('Building AR models for %d columns, with %d samples each' %
+#                 (train_table.shape[1], train_table.shape[0])
+#                 )
+#
+#     Sigmas = []
+#     # TODO parallelize
+#     for i in range(train_table.shape[1]):
+#         logger.debug(
+#             'Building AR model for column %s' %
+#             train_table.columns[i])
+#         cached_lag_covariances[i], Sigma = fit_AR(
+#             train_table.iloc[:, i].values, cached_lag_covariances[i], lag)
+#         if not cached_lag_covariances[i][0]:
+#             logger.warning(f'AR model for column {train_table.columns[i]} is null!')
+#             Sigma = np.eye(lag)
+#         Sigmas.append(Sigma)
+#     return Sigmas
 
 
 def make_V(v: np.ndarray, lag) -> sp.lil_matrix:
@@ -158,8 +161,8 @@ def build_S(u, lag):
     if not n:
         return np.empty((0, 0))
     lag_covs = make_lag_covs(u, lag, n)
-    return np.bmat([[make_Sigma_scalar_AR_asymm(lag_covs[i, j, :],
-                                                lag_covs[j, i, :])
+    return np.bmat([[make_Sigma_scalar_AR_asymm(lag_covs[j, i, :],
+                                                lag_covs[i, j, :])
                      for i in range(n)] for j in range(n)])
 
 
@@ -169,14 +172,32 @@ def _fit_low_rank_plus_block_diagonal_ar(
         rank: int,
         cached_lag_covariances: List[float],
         cached_svd: dict,
-        cached_factor_lag_covariances: dict):
+        cached_factor_lag_covariances: dict,
+        full_covariance: bool,
+        full_covariance_blocks: List):
 
     logger.debug('Fitting low rank plus diagonal model.')
 
-    scalar_Sigmas = fit_per_column_AR(
-        train, cached_lag_covariances, lag)
+    if full_covariance:
+        logger.debug('Building full Sigma')
+        Sigma = build_S(train.values, lag)
+        np.fill_diagonal(Sigma, 1.)
+        Sigma = np.nan_to_num(Sigma)
+        return sp.csc_matrix((Sigma.shape[0], 0)), np.empty((0, 0)), \
+                np.empty((0, 0)), [np.array(Sigma)], Sigma
 
-    if train.shape[1] <= 2:
+    scalar_Sigmas = []
+    for block in full_covariance_blocks:
+        block_Sigma = build_S(train[block].values, lag)
+        block_Sigma = np.nan_to_num(block_Sigma, copy=True)
+        np.fill_diagonal(block_Sigma, 1.)
+        scalar_Sigmas.append(block_Sigma)
+
+    #
+    # fit_per_column_AR(
+    #     train, cached_lag_covariances, lag)
+
+    if train.shape[1] <= 1:
 
         u, s, v = np.empty((train.shape[0], 0)), \
             np.empty((0, 0)), np.empty((0, train.shape[1]))
@@ -194,8 +215,10 @@ def _fit_low_rank_plus_block_diagonal_ar(
     #     pd.DataFrame(u),
     #     cached_factor_lag_covariances[rank],
     #     lag)
-
-    V = make_V(np.diag(s) @ v, lag)
+    if v.shape[0] == 0:
+        V = sp.csc_matrix((train.shape[1] * lag, 0))
+    else:
+        V = make_V(np.diag(s) @ v, lag)
 
     # S = (sp.block_diag(factor_Sigmas).todense() if len(
     #     factor_Sigmas) else np.empty((0, 0)))
@@ -207,32 +230,46 @@ def _fit_low_rank_plus_block_diagonal_ar(
     logger.debug('Building S^-1')
     S_inv = np.linalg.inv(S)
 
-    D_blocks = [scalar_Sigmas[i] -
-                V[lag * i: lag * (i + 1)] @ S @ V[lag * i: lag * (i + 1)].T
-                for i in range(len(scalar_Sigmas))]
+    #for i in range(len(scalar_Sigmas)):
 
-    D_matrix = sp.block_diag(D_blocks).tocsc()
-    D_inv = sp.block_diag([np.linalg.inv(block) for block in D_blocks])
+    D_blocks = []
+    cur = 0
+    for i in range(len(scalar_Sigmas)):
+        size = scalar_Sigmas[i].shape[0]
+        logger.debug('correcting block of size %d' % size)
+        D_blocks.append( scalar_Sigmas[i] -
+                V[cur: cur + size] @ S @ V[cur: cur + size].T)
+        cur += size
 
-    return V, S, S_inv, D_blocks, D_matrix, D_inv
+    D_matrix = sp.block_diag(D_blocks).todense()
+    #D_inv = sp.block_diag([np.linalg.inv(block) for block in D_blocks])
+
+    return V, S, S_inv, D_blocks, D_matrix
 
 
 def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
                  D_blocks, D_matrix,
-                 D_inv, min_rows=5, max_eval=5):
+                 #D_inv,  # min_rows=5,
+                 max_eval=1,
+                 quadratic_regularization: float =0.):
     print('guessing matrix')
     # matrix_with_na = pd.DataFrame(matrix_with_na)
     full_null_mask = np.isnan(matrix_with_na)
-    ranked_masks = pd.Series([tuple(el) for el in
-                              full_null_mask]).value_counts().index
+    ranked_masks_counts = pd.Series([tuple(el) for el in
+                                     full_null_mask]).value_counts()
+
+    print('count values of NaN masks of test')
+    print(ranked_masks_counts.values)
+
+    ranked_masks = ranked_masks_counts.index
 
     for i in range(len(ranked_masks))[:max_eval]:
 
         print('null mask %d' % i)
         mask_indexes = (full_null_mask ==
                         ranked_masks[i]).all(1)
-        if mask_indexes.sum() <= min_rows:
-            break
+        # if mask_indexes.sum() <= min_rows:
+        #     break
         print('there are %d rows' % mask_indexes.sum())
 
         # TODO fix
@@ -249,7 +286,8 @@ def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
                 D_matrix,
                 known_mask=known_mask,
                 known_matrix=known_matrix,
-                return_conditional_covariance=False)
+                return_conditional_covariance=False,
+                quadratic_regularization = quadratic_regularization)
 
         logger.debug('Assigning conditional expectation to matrix.')
         mat_slice = matrix_with_na[mask_indexes]
@@ -281,9 +319,10 @@ def make_prediction_mask(
 #     return mask
 
 
-def rmse_AR(V, S, S_inv, D_blocks, D_matrix, D_inv,
+def rmse_AR(V, S, S_inv, D_blocks, D_matrix,
             past_lag, future_lag, test: pd.DataFrame,
-            available_data_lags_columns: dict):
+            available_data_lags_columns: dict,
+            quadratic_regularization:float):
 
     lag = past_lag + future_lag
     test_flattened = make_sliced_flattened_matrix(test.values, lag)
@@ -291,10 +330,26 @@ def rmse_AR(V, S, S_inv, D_blocks, D_matrix, D_inv,
         available_data_lags_columns, test.columns, past_lag, future_lag)
     real_values = pd.DataFrame(test_flattened, copy=True)
     test_flattened[:, prediction_mask] = np.nan
-    guess_matrix(test_flattened, V, S, S_inv, D_blocks, D_matrix, D_inv)
+    guess_matrix(test_flattened, V, S, S_inv, D_blocks, D_matrix,
+    quadratic_regularization=quadratic_regularization)
 
-    rmses = DataFrameRMSE(real_values, pd.DataFrame(test_flattened))
+    test_flattened = pd.DataFrame(test_flattened)
+
+    total_test_obs = test_flattened.shape[0]
+
+    non_nan_test_obs = (test_flattened.isnull().sum(1) == 0).sum()
+
+    if non_nan_test_obs < total_test_obs:
+        logger.warning(
+            "There are %d test obs., but we are only testing on %d (because of NaNs)." %
+            (total_test_obs, non_nan_test_obs))
+
+    #assert (not test_flattened.isnull().sum().sum())
+
+    rmses = DataFrameRMSE(real_values, test_flattened)
     print(rmses)
+    #assert (not rmses.isnull().sum())
+    #assert False
 
     my_RMSE = pd.DataFrame(columns=test.columns,
                            index=range(1, future_lag + 1))
@@ -307,22 +362,37 @@ def rmse_AR(V, S, S_inv, D_blocks, D_matrix, D_inv,
     return my_RMSE
 
 
+# @dataclass
+# class LowRankBlockDiagonal:
+#     """Class for holding a low-rank plus block-diagonal."""
+#
+#     V: np.matrix
+#     S: np.matrix
+#     S_inv: np.matrix
+#     D_blocks
+#     D_matrix: np.matrix
+#     D_inv: np. matrix
+
+
 def fit_low_rank_plus_block_diagonal_AR(train: pd.DataFrame,
                                         test: pd.DataFrame,
                                         future_lag,
                                         past_lag,
                                         rank,
                                         available_data_lags_columns,
-                                        ignore_prediction_columns=[]):
+                                        ignore_prediction_columns,
+                                        full_covariance,
+                                        full_covariance_blocks,
+                                        quadratic_regularization):
+
+    logger.info('Fitting low-rank plus block diagonal AR')
+    logger.info('Train table has shape (%d, %d)' % (train.shape))
 
     cached_lag_covariances = [[] for i in range(train.shape[1])]
     cached_svd = {}
     cached_factor_lag_covariances = {}
 
-    logger.info('Fitting low-rank plus block diagonal AR')
-    logger.info('Train table has shape (%d, %d)' % (train.shape))
-
-    if test is not None:
+    if (past_lag is None) or (rank is None):
         logger.debug('Test table has shape (%d, %d)' % (test.shape))
 
         # TODO FIX
@@ -331,17 +401,20 @@ def fit_low_rank_plus_block_diagonal_AR(train: pd.DataFrame,
         rank_range = np.arange(
             0, max(1, train.shape[1] - 2)) if rank is None else [rank]
 
-        def test_RMSE(past_lag, rank):
+        def test_RMSE(past_lag, rank, quadratic_regularization):
 
             lag = past_lag + future_lag
 
-            V, S, S_inv, D_blocks, D_matrix, D_inv = _fit_low_rank_plus_block_diagonal_ar(
-                train, lag, rank, cached_lag_covariances, cached_svd, cached_factor_lag_covariances)
+            V, S, S_inv, D_blocks, D_matrix = _fit_low_rank_plus_block_diagonal_ar(
+                train, lag, rank, cached_lag_covariances, cached_svd,
+                cached_factor_lag_covariances, full_covariance,
+                full_covariance_blocks)
 
             RMSE_df = rmse_AR(V, S, S_inv, D_blocks,
-                              D_matrix, D_inv,
+                              D_matrix,
                               past_lag, future_lag, test,
-                              available_data_lags_columns)
+                              available_data_lags_columns,
+                              quadratic_regularization)
 
             return RMSE_df.loc[:, ~RMSE_df.columns.isin(
                 ignore_prediction_columns)].sum().sum()
@@ -349,18 +422,20 @@ def fit_low_rank_plus_block_diagonal_AR(train: pd.DataFrame,
             # np.nanmean((guessed[:, (prediction_mask & rmse_mask)] -
             #             real_values_rmse)**2)
 
-        optimal_rmse, (past_lag, rank) = greedy_grid_search(test_RMSE,
+        optimal_rmse, (past_lag, rank, quadratic_regularization) = greedy_grid_search(test_RMSE,
                                                             [past_lag_range,
                                                              rank_range],
                                                             num_steps=2)
 
     lag = past_lag + future_lag
-    V, S, S_inv, D_blocks, D_matrix, D_inv = \
+    V, S, S_inv, D_blocks, D_matrix = \
         _fit_low_rank_plus_block_diagonal_ar(
             train, lag, rank, cached_lag_covariances,
-            cached_svd, cached_factor_lag_covariances)
+            cached_svd, cached_factor_lag_covariances,
+            full_covariance,
+            full_covariance_blocks)
 
-    return past_lag, rank, V, S, S_inv, D_blocks, D_matrix, D_inv
+    return past_lag, rank, quadratic_regularization, V, S, S_inv, D_blocks, D_matrix
 
     # def dataframe_to_vector
 
