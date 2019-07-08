@@ -16,13 +16,17 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 import pandas as pd
+import pickle
+import gzip
+
 import logging
 from typing import Optional, List, Any
 logger = logging.getLogger(__name__)
 
 
 from .baseline import fit_baseline, data_to_residual, residual_to_data
-from .AR import fit_low_rank_plus_block_diagonal_AR, rmse_AR
+from .AR import fit_low_rank_plus_block_diagonal_AR, \
+    rmse_AR, anomaly_score, build_matrices
 from .utils import DataFrameRMSE, check_multidimensional_time_series
 from .linear_algebra import *
 from .linear_algebra import dense_schur
@@ -45,8 +49,8 @@ class TSAR:
                  available_data_lags_columns: dict = {},
                  ignore_prediction_columns: List[Any] = [],
                  full_covariance_blocks: List[Any] = [],
-                 full_covariance = False,
-                 quadratic_regularization = None):
+                 full_covariance=False,
+                 quadratic_regularization=None):
 
         # TODO REMOVE NULL COLUMNS OR REFUSE THEM
 
@@ -96,6 +100,14 @@ class TSAR:
         self.fit_train_test()
         self.fit()
         # del self.data
+
+    @property
+    def lag(self):
+        return self.past_lag + self.future_lag
+
+    @property
+    def factors(self):
+        return pd.DataFrame(model.V.todense()[::self.lag, ::self.lag], index=self.columns).T
 
     def fit_train_test(self):
         logger.debug('Fitting model on train and test data.')
@@ -159,6 +171,13 @@ class TSAR:
             if (test is not None) and self.return_performance_statistics:
                 self.baseline_RMSE[col] = optimal_rmse
 
+    def _build_matrices(self):
+
+        self.V, self.S, self.S_inv, \
+            self.D_blocks, self.D_matrix = build_matrices(
+                self.s_times_v, self.S_lagged_covariances,
+                self.block_lagged_covariances)
+
     def _fit_low_rank_plus_block_diagonal_AR(
             self, train: pd.DataFrame,
             test: Optional[pd.DataFrame] = None):
@@ -169,43 +188,53 @@ class TSAR:
         #     predicted_residuals_at_lags
 
         self.past_lag, self.rank, self.quadratic_regularization, \
-            self.V, self.S, self.S_inv, \
-            self.D_blocks, self.D_matrix = \
+            self.s_times_v, self.S_lagged_covariances, \
+            self.block_lagged_covariances = \
             fit_low_rank_plus_block_diagonal_AR(self._residual(train),
                                                 self._residual(
-                                                    test) if test is not None else None,
-                                                self.future_lag,
-                                                self.past_lag,
-                                                self.rank,
-                                                self.available_data_lags_columns,
-                                                self.ignore_prediction_columns,
-                                                self.full_covariance,
-                                                self.full_covariance_blocks,
-                                                self.quadratic_regularization)
+                test) if test is not None else None,
+                self.future_lag,
+                self.past_lag,
+                self.rank,
+                self.available_data_lags_columns,
+                self.ignore_prediction_columns,
+                self.full_covariance,
+                self.full_covariance_blocks,
+                self.quadratic_regularization)
+
+        self._build_matrices()
 
     def test_AR(self, test):
 
         test = test[self.columns]
 
         AR_RMSE = rmse_AR(self.V, self.S, self.S_inv,
-                               self.D_blocks,
-                               self.D_matrix,
-                               self.past_lag, self.future_lag,
-                               self._residual(test),
-                               self.available_data_lags_columns,
-                               self.quadratic_regularization)
+                          self.D_blocks,
+                          self.D_matrix,
+                          self.past_lag, self.future_lag,
+                          self._residual(test),
+                          self.available_data_lags_columns,
+                          self.quadratic_regularization)
 
         for col in AR_RMSE.columns:
             AR_RMSE[col] *= self.baseline_results_columns[col]['std']
 
         return AR_RMSE
 
-            # logger.debug('Computing autoregression RMSE.')
-            # self.AR_RMSE = pd.DataFrame(columns=self.columns)
-            # for lag in range(self.future_lag):
-            #     self.AR_RMSE.loc[i] = DataFrameRMSE(
-            #         self.test, self._invert_residual(
-            #             predicted_residuals_at_lags[i]))
+    def anomaly_score(self, test):
+        test = test[self.columns]
+        return anomaly_score(self.V, self.S, self.S_inv,
+                             self.D_blocks,
+                             self.D_matrix,
+                             self.past_lag, self.future_lag,
+                             self._residual(test))
+
+        # logger.debug('Computing autoregression RMSE.')
+        # self.AR_RMSE = pd.DataFrame(columns=self.columns)
+        # for lag in range(self.future_lag):
+        #     self.AR_RMSE.loc[i] = DataFrameRMSE(
+        #         self.test, self._invert_residual(
+        #             predicted_residuals_at_lags[i]))
 
     def test_model(self, test):
         residual = self._residual(test)
@@ -260,11 +289,11 @@ class TSAR:
         known_mask = ~np.isnan(residual_vectorized)
 
         res = dense_schur(self.Sigma, known_mask=known_mask,
-                          known_vector = residual_vectorized[known_mask],
-                        return_conditional_covariance=return_sigmas,
-                        quadratic_regularization=quadratic_regularization if\
-                        quadratic_regularization is not None else
-                        self.quadratic_regularization)
+                          known_vector=residual_vectorized[known_mask],
+                          return_conditional_covariance=return_sigmas,
+                          quadratic_regularization=quadratic_regularization if
+                          quadratic_regularization is not None else
+                          self.quadratic_regularization)
         # res = symm_low_rank_plus_block_diag_schur(
         #     V=self.V,
         #     S=self.S,
@@ -325,5 +354,28 @@ class TSAR:
             plt.figure()
             self.plot_RMSE(col)
 
-    def save_model(self, filename):
-        pass
+    def save_model(self):
+        model_dict = {'frequency': self.frequency,
+                      'past_lag': self.past_lag,
+                      'future_lag': self.future_lag,
+                      'columns': self.columns,
+                      'baseline_params_columns': self.baseline_params_columns,
+                      'baseline_results_columns': self.baseline_results_columns,
+                      '_min': self._min,
+                      '_max': self._max,
+                      'available_data_lags_columns': self.available_data_lags_columns,
+                      'rank': self.rank,
+                      'quadratic_regularization': self.quadratic_regularization,
+                      's_times_v': self.s_times_v,
+                      'S_lagged_covariances': self.S_lagged_covariances,
+                      'block_lagged_covariances': self.block_lagged_covariances}
+
+        return gzip.compress(pickle.dumps(model_dict,
+                                          protocol=pickle.HIGHEST_PROTOCOL))
+
+
+def load_model(model_compressed):
+    model = TSAR.__new__(TSAR)
+    model.__dict__.update(pickle.loads(gzip.decompress(model_compressed)))
+    model._build_matrices()
+    return model

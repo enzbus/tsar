@@ -161,7 +161,8 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
                                         D_matrix: np.matrix,
                                         known_mask, known_matrix,
                                         return_conditional_covariance=False,
-                                        quadratic_regularization: float = 0.):
+                                        quadratic_regularization: float = 0.,
+                                        do_anomaly_score=False):
     """Let Sigma = V @ S @ V^T + D,
     where D is a block diagonal matrix.
 
@@ -192,6 +193,10 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
     C_inv = woodbury_inverse(V=sliced_V,
                              S_inv=S_inv,
                              D_inv=sliced_D_inv)
+
+    if do_anomaly_score:
+        # TODO should adjust by diag of C
+        return  (C_inv @ known_matrix.T)
 
     logger.debug('Building B matrix')
     B = V[~known_mask, :] @ S @ sliced_V.T + \
