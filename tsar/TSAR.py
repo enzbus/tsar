@@ -29,7 +29,7 @@ from .AR import fit_low_rank_plus_block_diagonal_AR, \
     rmse_AR, anomaly_score, build_matrices
 from .utils import DataFrameRMSE, check_multidimensional_time_series
 from .linear_algebra import *
-from .linear_algebra import dense_schur
+#from .linear_algebra import dense_schur
 
 
 # TODOs
@@ -125,6 +125,13 @@ class TSAR:
     @property
     def Sigma(self):
         return self.V @ self.S @ self.V.T + self.D_matrix
+
+    @property
+    def Sigma_df(self):
+        m_ind = pd.MultiIndex.from_arrays((np.repeat(self.columns, self.lag),
+                                           np.concatenate([np.arange(-self.past_lag + 1,
+                                                                     self.future_lag + 1)] * len(self.columns))))
+        return pd.DataFrame(self.Sigma, index=m_ind, columns=m_ind)
 
     @property
     def train(self):
@@ -288,12 +295,27 @@ class TSAR:
         self.D_blocks_indexes = make_block_indexes(self.D_blocks)
         known_mask = ~np.isnan(residual_vectorized)
 
-        res = dense_schur(self.Sigma, known_mask=known_mask,
-                          known_vector=residual_vectorized[known_mask],
-                          return_conditional_covariance=return_sigmas,
-                          quadratic_regularization=quadratic_regularization if
-                          quadratic_regularization is not None else
-                          self.quadratic_regularization)
+        # res = dense_schur(self.Sigma, known_mask=known_mask,
+        #                   known_vector=residual_vectorized[known_mask],
+        #                   return_conditional_covariance=return_sigmas,
+        #                   quadratic_regularization=quadratic_regularization if
+        #                   quadratic_regularization is not None else
+        #                   self.quadratic_regularization)
+
+        res = symm_low_rank_plus_block_diag_schur(self.V,
+                                                  self.S,
+                                                  self.S_inv,
+                                                  self.D_blocks,
+                                                  self.D_blocks_indexes,
+                                                  self.D_matrix,
+                                                  known_mask,
+                                                  known_matrix=np.matrix(
+                                                      residual_vectorized[known_mask]),
+                                                  return_conditional_covariance=return_sigmas,
+                                                  quadratic_regularization=quadratic_regularization if
+                                                  quadratic_regularization is not None else
+                                                  self.quadratic_regularization)
+
         # res = symm_low_rank_plus_block_diag_schur(
         #     V=self.V,
         #     S=self.S,

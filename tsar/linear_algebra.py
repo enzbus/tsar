@@ -37,11 +37,11 @@ def iterative_denoised_svd(dataframe, P, T=10):
     y = pd.DataFrame(0., index=dataframe.index,
                      columns=dataframe.columns)
     for t in range(T):
-        #if P < dataframe.shape[1]:
+        # if P < dataframe.shape[1]:
         #u, s, v = spl.svds(dataframe.fillna(y), P)
         # else:
         #     u, s, v = np.linalg.svd(dataframe.fillna(y), full_matrices=False)
-        if P == (dataframe.shape[1]-1):
+        if P == (dataframe.shape[1] - 1):
             u, s, v = np.linalg.svd(dataframe.fillna(y), full_matrices=False)
             u = u[:, ::-1]
             s = s[::-1]
@@ -50,13 +50,13 @@ def iterative_denoised_svd(dataframe, P, T=10):
             u, s, v = spl.svds(dataframe.fillna(y), P + 1)
         dn_u, dn_s, dn_v = u[:, 1:], s[1:] - s[0], v[1:]
         new_y = dn_u @ np.diag(dn_s) @ dn_v
-        #new_y = u @ np.diag(s) @ v
+        # new_y = u @ np.diag(s) @ v
         logger.debug('Iterative svd, MSE(y_%d - y_{%d}) = %.2e' % (
             t + 1, t, ((new_y - y)**2).mean().mean()))
         y.iloc[:, :] = dn_u @ np.diag(dn_s) @ dn_v
-        #y.iloc[:, :] = u @ np.diag(s) @ v
+        # y.iloc[:, :] = u @ np.diag(s) @ v
     return dn_u, dn_s, dn_v
-    #return u, s, v
+    # return u, s, v
 
 
 def make_block_indexes(blocks):
@@ -113,30 +113,32 @@ def symm_slice_blocks(blocks, block_indexes, mask):
         new_block_indexes[block_indexes[:, i], i]].T
         for i, block in enumerate(blocks)]
 
-def dense_schur(Sigma, known_mask, known_vector,
-                return_conditional_covariance=False,
-                quadratic_regularization=0.):
-    logger.debug('Solving dense Schur complement.')
-    B = Sigma[~known_mask].T[known_mask].T
-    C = Sigma[known_mask].T[known_mask].T
-    res = B @ np.linalg.solve(C + quadratic_regularization * np.eye(C.shape[0]),
-     known_vector)
+# def dense_schur(Sigma, known_mask, known_vector,
+#                 return_conditional_covariance=False,
+#                 quadratic_regularization=0.):
+#     logger.debug('Solving dense Schur complement.')
+#     B = Sigma[~known_mask].T[known_mask].T
+#     C = Sigma[known_mask].T[known_mask].T
+#     res = B @ np.linalg.solve(C + quadratic_regularization * np.eye(C.shape[0]),
+#      known_vector)
 
-    if return_conditional_covariance:
-        logger.debug('Building conditional covariance')
-        return res, Sigma[~known_mask].T[~known_mask].T - B @ np.linalg.inv(C + quadratic_regularization * np.eye(C.shape[0])) @ B.T
+#     if return_conditional_covariance:
+#         logger.debug('Building conditional covariance')
+# return res, Sigma[~known_mask].T[~known_mask].T - B @ np.linalg.inv(C +
+# quadratic_regularization * np.eye(C.shape[0])) @ B.T
 
-    return res
+#     return res
+
 
 def alternative_symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
-                                        S: np.matrix,
-                                        S_inv: np.matrix,
-                                        D_blocks,
-                                        D_blocks_indexes,
-                                        D_matrix: np.matrix,
-                                        known_mask, known_matrix,
-                                        return_conditional_covariance=False,
-                                        quadratic_regularization: float = 0.):
+                                                    S: np.matrix,
+                                                    S_inv: np.matrix,
+                                                    D_blocks,
+                                                    D_blocks_indexes,
+                                                    D_matrix: np.matrix,
+                                                    known_mask, known_matrix,
+                                                    return_conditional_covariance=False,
+                                                    quadratic_regularization: float = 0.):
 
     logger.debug('Making Sigma')
     Sigma = V @ S @ V.T + D_matrix
@@ -152,6 +154,7 @@ def alternative_symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
         return res, Sigma[~known_mask].T[~known_mask].T - B @ Cinv @ B.T
 
     return res
+
 
 def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
                                         S: np.matrix,
@@ -187,8 +190,8 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
     sliced_V = V[known_mask, :]
     sliced_D_blocks = symm_slice_blocks(D_blocks, D_blocks_indexes, known_mask)
     sliced_D_inv = sp.block_diag([np.linalg.inv(block +
-                    quadratic_regularization * np.eye(block.shape[0]))
-                            for block in sliced_D_blocks]).todense()
+                                                quadratic_regularization * np.eye(block.shape[0]))
+                                  for block in sliced_D_blocks]).todense()
 
     C_inv = woodbury_inverse(V=sliced_V,
                              S_inv=S_inv,
@@ -196,7 +199,7 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
 
     if do_anomaly_score:
         # TODO should adjust by diag of C
-        return  (C_inv @ known_matrix.T)
+        return (C_inv @ known_matrix.T)
 
     logger.debug('Building B matrix')
     B = V[~known_mask, :] @ S @ sliced_V.T + \
