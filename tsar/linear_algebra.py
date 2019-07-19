@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 import scipy.sparse as sp
 
 
-def iterative_denoised_svd(dataframe, P, T=10):
+def _iterative_denoised_svd(dataframe, P, T=10):
 
     if P == 0:
         return np.zeros((dataframe.shape[0], 0)), np.zeros(0), \
@@ -57,6 +57,21 @@ def iterative_denoised_svd(dataframe, P, T=10):
         # y.iloc[:, :] = u @ np.diag(s) @ v
     return dn_u, dn_s, dn_v
     # return u, s, v
+
+
+def iterative_denoised_svd(dataframe, P):
+
+    if P == 0:
+        return np.zeros((dataframe.shape[0], 0)), np.zeros(0), \
+            np.zeros((0, dataframe.shape[1])),
+
+    fill_rank = int(min(dataframe.shape) * dataframe.isnull().sum().sum() /
+                    (dataframe.shape[0] * dataframe.shape[1]))
+    u_big, s_big, v_big = _iterative_denoised_svd(dataframe, P=fill_rank - 1)
+    return (u_big[:, -P:],  # [:, ::-1],
+            s_big[-P:],  # [::-1],
+            v_big[-P:],  # [::-1]
+            )
 
 
 def make_block_indexes(blocks):
@@ -162,10 +177,14 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
                                         D_blocks,
                                         D_blocks_indexes,
                                         D_matrix: np.matrix,
-                                        known_mask, known_matrix,
+                                        known_mask,
+                                        known_matrix,
+                                        prediction_mask,
+                                        real_result,
+                                        quadratic_regularization: np.array,
                                         return_conditional_covariance=False,
-                                        quadratic_regularization: float = 0.,
-                                        do_anomaly_score=False):
+                                        do_anomaly_score=False,
+                                        return_gradient=False):
     """Let Sigma = V @ S @ V^T + D,
     where D is a block diagonal matrix.
 
@@ -173,6 +192,9 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
     expectation, with mean zero, and optionally
     return the conditional covariance.
     """
+
+    #prediction_mask = ~known_mask
+
     logger.debug('Solving Schur complement of low-rank plus block diagonal.')
 
     # TODO fix upstream
@@ -189,9 +211,18 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
 
     sliced_V = V[known_mask, :]
     sliced_D_blocks = symm_slice_blocks(D_blocks, D_blocks_indexes, known_mask)
-    sliced_D_inv = sp.block_diag([np.linalg.inv(block +
-                                                quadratic_regularization * np.eye(block.shape[0]))
-                                  for block in sliced_D_blocks]).todense()
+    inverse_blocks = []
+    count = 0
+    for block in sliced_D_blocks:
+        #how_many_var_in_bloc = block.shape[0] // lag
+        inverse_blocks.append(np.linalg.inv(
+            block + np.diag(quadratic_regularization[count:
+                                                     count + block.shape[0]])
+            #quadratic_regularization * np.eye(block.shape[0])
+        ))
+        count += block.shape[0]
+
+    sliced_D_inv = sp.block_diag(inverse_blocks).todense()
 
     C_inv = woodbury_inverse(V=sliced_V,
                              S_inv=S_inv,
@@ -202,8 +233,8 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
         return (C_inv @ known_matrix.T)
 
     logger.debug('Building B matrix')
-    B = V[~known_mask, :] @ S @ sliced_V.T + \
-        D_matrix[~known_mask].T[known_mask].T
+    B = V[prediction_mask, :] @ S @ sliced_V.T + \
+        D_matrix[prediction_mask].T[known_mask].T
 
     assert C_inv.__class__ is np.matrix
     assert B.__class__ is np.matrix
@@ -211,13 +242,30 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
     # BC_inv = B @ C_inv
 
     logger.debug('Computing conditional expectation')
-    conditional_expect = B @ (C_inv @ known_matrix.T)
+    partial = (C_inv @ known_matrix.T)
+    conditional_expect = B @ partial
+
+    #print(conditional_expect - real_result.T)
+    if return_gradient:
+        error = conditional_expect - real_result.T
+        error = np.nan_to_num(error)
+
+        logger.info('Making left side of derivative')
+        left = 2 * (error.T @ B) @ C_inv
+        # print(left.shape)
+        logger.info('Making right side of derivative')
+        right = partial
+        # print(right.shape)
+        logger.info('Computing gradient')
+        gradient = [(left[:, i].T @ right[i].T)[0, 0] for i in range(left.shape[1])]
+        # print(gradient)
+        return conditional_expect, gradient
 
     if return_conditional_covariance:
         # TODO optimize
         logger.debug('Computing conditional covariance')
-        Vsliced = V[~known_mask, :]
-        Dsliced = D_matrix[~known_mask, ~known_mask]
+        Vsliced = V[prediction_mask, :]
+        Dsliced = D_matrix[prediction_mask, prediction_mask]
         return conditional_expect, (Vsliced @ S) @ Vsliced.T + \
             Dsliced - (B @ C_inv) @ B.T
 

@@ -107,14 +107,14 @@ class TSAR:
 
     @property
     def factors(self):
-        return pd.DataFrame(model.V.todense()[::self.lag, ::self.lag], index=self.columns).T
+        return pd.DataFrame(self.V.todense()[::self.lag, ::self.lag], index=self.columns).T
 
     def fit_train_test(self):
         logger.debug('Fitting model on train and test data.')
         self._fit_ranges(self.train)
         self._fit_baselines(self.train, self.test)
         self._fit_low_rank_plus_block_diagonal_AR(self.train, self.test)
-        self.AR_RMSE = self.test_AR(self.test)
+        self.AR_RMSE, self.gradients = self.test_AR(self.test)
 
     def fit(self):
         logger.debug('Fitting model on whole data.')
@@ -127,11 +127,16 @@ class TSAR:
         return self.V @ self.S @ self.V.T + self.D_matrix
 
     @property
+    def large_matrix_multiindex(self):
+        return pd.MultiIndex.from_arrays((np.repeat(self.columns, self.lag),
+                                          np.concatenate([np.arange(-self.past_lag + 1,
+                                                                    self.future_lag + 1)] * len(self.columns))))
+
+    @property
     def Sigma_df(self):
-        m_ind = pd.MultiIndex.from_arrays((np.repeat(self.columns, self.lag),
-                                           np.concatenate([np.arange(-self.past_lag + 1,
-                                                                     self.future_lag + 1)] * len(self.columns))))
-        return pd.DataFrame(self.Sigma, index=m_ind, columns=m_ind)
+        return pd.DataFrame(self.Sigma,
+                            index=self.large_matrix_multiindex,
+                            columns=self.large_matrix_multiindex)
 
     @property
     def train(self):
@@ -215,18 +220,19 @@ class TSAR:
 
         test = test[self.columns]
 
-        AR_RMSE = rmse_AR(self.V, self.S, self.S_inv,
-                          self.D_blocks,
-                          self.D_matrix,
-                          self.past_lag, self.future_lag,
-                          self._residual(test),
-                          self.available_data_lags_columns,
-                          self.quadratic_regularization)
+        AR_RMSE, gradients = rmse_AR(self.V, self.S, self.S_inv,
+                                     self.D_blocks,
+                                     self.D_matrix,
+                                     self.past_lag, self.future_lag,
+                                     self._residual(test),
+                                     self.available_data_lags_columns,
+                                     self.ignore_prediction_columns,
+                                     self.quadratic_regularization)
 
         for col in AR_RMSE.columns:
             AR_RMSE[col] *= self.baseline_results_columns[col]['std']
 
-        return AR_RMSE
+        return AR_RMSE, gradients
 
     def anomaly_score(self, test):
         test = test[self.columns]
@@ -308,9 +314,11 @@ class TSAR:
                                                   self.D_blocks,
                                                   self.D_blocks_indexes,
                                                   self.D_matrix,
-                                                  known_mask,
+                                                  known_mask=known_mask,
                                                   known_matrix=np.matrix(
                                                       residual_vectorized[known_mask]),
+                                                  prediction_mask=~known_mask,
+                                                  real_result=None,
                                                   return_conditional_covariance=return_sigmas,
                                                   quadratic_regularization=quadratic_regularization if
                                                   quadratic_regularization is not None else

@@ -153,7 +153,9 @@ def make_lagged_covariances(u: np.ndarray, lag: int):
     for i in range(n):
         for j in range(n):
             for t in range(lag):
-                lag_covs[i, j, t] = lag_covariance_asymm(u[:, i], u[:, j], t)
+                #lag_covs[i, j, t] = lag_covariance_asymm(u[:, i], u[:, j], t)
+                lag_covs[j, i, t] = lag_covariance_asymm(u[:, i], u[:, j], t)
+
     return lag_covs
 
 
@@ -214,7 +216,7 @@ def _fit_low_rank_plus_block_diagonal_ar(
 
     if full_covariance:
         logger.debug('Fitting full Sigma')
-        return np.empty((0, train.shape[1] * lag)), \
+        return np.empty((0, train.shape[1])), \
             np.empty((0, 0, lag)), \
             [make_lagged_covariances(train.values, lag)]
 
@@ -261,34 +263,41 @@ def _fit_low_rank_plus_block_diagonal_ar(
 def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
                  D_blocks, D_matrix,
                  # D_inv,  # min_rows=5,
-                 max_eval=10,
-                 quadratic_regularization: float =0.,
+                 quadratic_regularization: np.array,
+                 prediction_mask, real_values,
+                 max_eval=3,
                  do_anomaly_score=False):
-    print('guessing matrix')
+    logger.info('guessing matrix')
     # matrix_with_na = pd.DataFrame(matrix_with_na)
     full_null_mask = np.isnan(matrix_with_na)
     ranked_masks_counts = pd.Series([tuple(el) for el in
                                      full_null_mask]).value_counts()
 
-    print('count values of NaN masks of test')
-    print(ranked_masks_counts.values)
+    logger.info('count values of NaN masks of test %s' %
+                ranked_masks_counts.values)
 
     ranked_masks = ranked_masks_counts.index
 
+    gradients = np.empty((matrix_with_na.shape[1],
+                          min(len(ranked_masks), max_eval)))
+    gradients[:, :] = np.nan
+    total_num_predictions_made = 0
     for i in range(len(ranked_masks))[:max_eval]:
 
-        print('null mask %d' % i)
+        logger.info('null mask %d' % i)
         mask_indexes = (full_null_mask ==
                         ranked_masks[i]).all(1)
         # if mask_indexes.sum() <= min_rows:
         #     break
-        print('there are %d rows' % mask_indexes.sum())
+        logger.info('there are %d rows' % mask_indexes.sum())
+        total_num_predictions_made += mask_indexes.sum()
 
         # TODO fix
         D_blocks_indexes = make_block_indexes(D_blocks)
         known_mask = ~np.array(ranked_masks[i])
         known_matrix = matrix_with_na[mask_indexes].T[known_mask].T
-        result = \
+        real_result = real_values.values[mask_indexes].T[prediction_mask].T
+        result, gradient = \
             symm_low_rank_plus_block_diag_schur(
                 V,
                 S,
@@ -298,31 +307,41 @@ def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
                 D_matrix,
                 known_mask=known_mask,
                 known_matrix=known_matrix,
+                prediction_mask=prediction_mask,
+                real_result=real_result,
                 return_conditional_covariance=False,
                 quadratic_regularization=quadratic_regularization,
-                do_anomaly_score=do_anomaly_score)
+                do_anomaly_score=do_anomaly_score,
+                return_gradient=True)
+        gradients[known_mask, i] = gradient
 
         if do_anomaly_score:
             return result
 
         logger.debug('Assigning conditional expectation to matrix.')
         mat_slice = matrix_with_na[mask_indexes]
-        mat_slice[:, ~known_mask] = result.T
+        mat_slice[:, prediction_mask] = result.T
         matrix_with_na[mask_indexes] = mat_slice
+    return gradients, total_num_predictions_made
 
 
 def make_prediction_mask(
         available_data_lags_columns,
+        ignore_prediction_col_mask,
         columns,
         past_lag,
         future_lag):
     lag = past_lag + future_lag
     N = len(available_data_lags_columns)
-    mask = np.zeros(N * (past_lag + future_lag), dtype=bool)
+    unknown_mask = np.zeros(N * (past_lag + future_lag), dtype=bool)
+    prediction_mask = np.zeros(N * (past_lag + future_lag), dtype=bool)
     for i in range(N):
-        mask[lag * i + past_lag + available_data_lags_columns[columns[i]]:
-             lag * (i + 1)] = True
-    return mask
+        unknown_mask[lag * i + past_lag + available_data_lags_columns[columns[i]]:
+                     lag * (i + 1)] = True
+        if not ignore_prediction_col_mask[i]:
+            prediction_mask[lag * i + past_lag + available_data_lags_columns[columns[i]]:
+                            lag * (i + 1)] = True
+    return prediction_mask, unknown_mask
 
 
 # def make_rmse_mask(columns, ignore_prediction_columns, lag):
@@ -338,32 +357,39 @@ def make_prediction_mask(
 def rmse_AR(V, S, S_inv, D_blocks, D_matrix,
             past_lag, future_lag, test: pd.DataFrame,
             available_data_lags_columns: dict,
-            quadratic_regularization: float):
+            ignore_prediction_columns: list,
+            quadratic_regularization: np.array):
 
     lag = past_lag + future_lag
     test_flattened = make_sliced_flattened_matrix(test.values, lag)
-    prediction_mask = make_prediction_mask(
-        available_data_lags_columns, test.columns, past_lag, future_lag)
+    ignore_prediction_col_mask = test.columns.isin(ignore_prediction_columns)
+    prediction_mask, unknown_mask = make_prediction_mask(
+        available_data_lags_columns, ignore_prediction_col_mask,
+        test.columns, past_lag, future_lag)
     real_values = pd.DataFrame(test_flattened, copy=True)
-    test_flattened[:, prediction_mask] = np.nan
-    guess_matrix(test_flattened, V, S, S_inv, D_blocks, D_matrix,
-                 quadratic_regularization=quadratic_regularization)
+    test_flattened[:, unknown_mask] = np.nan
+    gradients, total_num_predictions_made = guess_matrix(test_flattened, V, S, S_inv, D_blocks, D_matrix,
+                                                         quadratic_regularization=quadratic_regularization,
+                                                         prediction_mask=prediction_mask, real_values=real_values)
 
     test_flattened = pd.DataFrame(test_flattened)
 
     total_test_obs = test_flattened.shape[0]
 
-    non_nan_test_obs = (test_flattened.isnull().sum(1) == 0).sum()
+    #non_nan_test_obs = (test_flattened.isnull().sum(1) == 0).sum()
 
-    if non_nan_test_obs < total_test_obs:
+    if total_num_predictions_made < total_test_obs:
         logger.warning(
             "There are %d test obs., but we are only testing on %d (because of NaNs)." %
-            (total_test_obs, non_nan_test_obs))
+            (total_test_obs, total_num_predictions_made))
+
+    estimate_total_loss_entries = total_num_predictions_made * \
+        sum(prediction_mask)
 
     # assert (not test_flattened.isnull().sum().sum())
 
     rmses = DataFrameRMSE(real_values, test_flattened)
-    print(rmses)
+    # print(rmses)
 
     my_RMSE = pd.DataFrame(columns=test.columns,
                            index=range(1, future_lag + 1))
@@ -371,9 +397,9 @@ def rmse_AR(V, S, S_inv, D_blocks, D_matrix,
     for i, column in enumerate(test.columns):
         my_RMSE[column] = rmses.iloc[lag * i + past_lag: lag * (i + 1)].values
 
-    print(my_RMSE)
+    # print(my_RMSE)
 
-    return my_RMSE
+    return my_RMSE, gradients / estimate_total_loss_entries
     # assert (not rmses.isnull().sum())
     # assert False
 
