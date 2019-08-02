@@ -97,7 +97,7 @@ def data_to_residual(data: pd.Series, std: float,
                      weekly_harmonics: int,
                      annual_harmonics: int,
                      trend: bool,
-                     baseline_fit_result: np.ndarray) -> pd.Series:
+                     baseline_fit_result: np.ndarray, **kwargs) -> pd.Series:
     return (data - compute_baseline(data.index,
                                     daily_harmonics,
                                     weekly_harmonics,
@@ -112,7 +112,7 @@ def residual_to_data(residual: pd.Series,
                      weekly_harmonics: int,
                      annual_harmonics: int,
                      trend: bool,
-                     baseline_fit_result: np.ndarray) -> pd.Series:
+                     baseline_fit_result: np.ndarray, **kwargs) -> pd.Series:
     return residual * std + compute_baseline(residual.index,
                                              daily_harmonics,
                                              weekly_harmonics,
@@ -141,7 +141,7 @@ def fit_baseline(train, test,
                  daily_harmonics=None,
                  weekly_harmonics=None,
                  annual_harmonics=None,
-                 trend=None):
+                 trend=None, **kwargs):
 
     train = train.dropna()
 

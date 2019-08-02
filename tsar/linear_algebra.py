@@ -65,8 +65,9 @@ def iterative_denoised_svd(dataframe, P):
         return np.zeros((dataframe.shape[0], 0)), np.zeros(0), \
             np.zeros((0, dataframe.shape[1])),
 
-    fill_rank = int(min(dataframe.shape) * dataframe.isnull().sum().sum() /
+    fill_rank = int(min(dataframe.shape) * (~dataframe.isnull()).sum().sum() /
                     (dataframe.shape[0] * dataframe.shape[1]))
+    print('fill_rank:', fill_rank)
     u_big, s_big, v_big = _iterative_denoised_svd(dataframe, P=fill_rank - 1)
     return (u_big[:, -P:],  # [:, ::-1],
             s_big[-P:],  # [::-1],

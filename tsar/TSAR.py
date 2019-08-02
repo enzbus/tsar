@@ -29,6 +29,9 @@ from .AR import fit_low_rank_plus_block_diagonal_AR, \
     rmse_AR, anomaly_score, build_matrices
 from .utils import DataFrameRMSE, check_multidimensional_time_series
 from .linear_algebra import *
+from .non_par_baseline import fit_baseline as non_par_fit_baseline, \
+    data_to_residual as non_par_data_to_residual, \
+    residual_to_data as non_par_residual_to_data
 #from .linear_algebra import dense_schur
 
 
@@ -70,6 +73,8 @@ class TSAR:
         self.available_data_lags_columns = available_data_lags_columns
         self.ignore_prediction_columns = ignore_prediction_columns
         self.full_covariance = full_covariance
+        if quadratic_regularization is None:
+            quadratic_regularization = np.zeros(self.lag * self.data.shape[1])
         self.quadratic_regularization = quadratic_regularization
 
         self.full_covariance_blocks = full_covariance_blocks
@@ -94,6 +99,21 @@ class TSAR:
             self.baseline_results_columns[col] = {}
             if col not in self.baseline_params_columns:
                 self.baseline_params_columns[col] = {}
+
+            # non parametric baseline
+
+            if 'non_par_baseline' not in self.baseline_params_columns[col]:
+                self.baseline_params_columns[col]['non_par_baseline'] = False
+            if self.baseline_params_columns[col]['non_par_baseline'] and not \
+               'used_features' in self.baseline_params_columns[col]:
+                self.baseline_params_columns[col]['used_features'] = \
+                    ['hour_of_day', 'day_of_week', 'month_of_year']
+            if self.baseline_params_columns[col]['non_par_baseline'] and not \
+               'lambdas' in self.baseline_params_columns[col]:
+                self.baseline_params_columns[col]['lambdas'] = \
+                    [None] * len(self.baseline_params_columns[col]
+                                 ['used_features'])
+
             if col not in self.available_data_lags_columns:
                 self.available_data_lags_columns[col] = 0
 
@@ -169,16 +189,27 @@ class TSAR:
         for col in self.columns:
             logger.debug('Fitting baseline on column %s.' % col)
 
-            self.baseline_results_columns[col]['std'], \
-                self.baseline_params_columns[col]['daily_harmonics'], \
-                self.baseline_params_columns[col]['weekly_harmonics'], \
-                self.baseline_params_columns[col]['annual_harmonics'], \
-                self.baseline_params_columns[col]['trend'],\
-                self.baseline_results_columns[col]['baseline_fit_result'], \
-                optimal_rmse = fit_baseline(
-                train[col],
-                test[col] if test is not None else None,
-                **self.baseline_params_columns[col])
+            if not self.baseline_params_columns[col]['non_par_baseline']:
+
+                self.baseline_results_columns[col]['std'], \
+                    self.baseline_params_columns[col]['daily_harmonics'], \
+                    self.baseline_params_columns[col]['weekly_harmonics'], \
+                    self.baseline_params_columns[col]['annual_harmonics'], \
+                    self.baseline_params_columns[col]['trend'],\
+                    self.baseline_results_columns[col]['baseline_fit_result'], \
+                    optimal_rmse = fit_baseline(
+                    train[col],
+                    test[col] if test is not None else None,
+                    **self.baseline_params_columns[col])
+            else:
+
+                self.baseline_results_columns[col]['std'], \
+                    self.baseline_params_columns[col]['lambdas'],\
+                    self.baseline_results_columns[col]['theta'], \
+                    optimal_rmse = non_par_fit_baseline(
+                    train[col],
+                    test[col] if test is not None else None,
+                    **self.baseline_params_columns[col])
 
             if (test is not None) and self.return_performance_statistics:
                 self.baseline_RMSE[col] = optimal_rmse
@@ -260,18 +291,22 @@ class TSAR:
         return data.apply(self._column_residual)
 
     def _column_residual(self, column: pd.Series) -> pd.Series:
-        return data_to_residual(column,
-                                **self.baseline_results_columns[column.name],
-                                **self.baseline_params_columns[column.name])
+        return (non_par_data_to_residual
+                if self.baseline_params_columns[column.name]['non_par_baseline']
+                else data_to_residual)(column,
+                                       **self.baseline_results_columns[column.name],
+                                       **self.baseline_params_columns[column.name])
 
     def _invert_residual(self, data: pd.DataFrame) -> pd.DataFrame:
         return self._clip_prediction(
             data.apply(self._column_invert_residual))
 
     def _column_invert_residual(self, column: pd.Series) -> pd.Series:
-        return residual_to_data(column,
-                                **self.baseline_results_columns[column.name],
-                                **self.baseline_params_columns[column.name])
+        return (non_par_residual_to_data
+                if self.baseline_params_columns[column.name]['non_par_baseline']
+                else residual_to_data)(column,
+                                       **self.baseline_results_columns[column.name],
+                                       **self.baseline_params_columns[column.name])
 
     def predict(self,
                 data: pd.DataFrame,
