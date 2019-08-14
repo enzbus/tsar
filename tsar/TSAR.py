@@ -200,11 +200,11 @@ class TSAR:
             else:
                 train, test = col_data, None
 
-            logger.info(f'\ttraining on {len(train)} points from' +
+            logger.info(f'\ttraining on {len(train)} points from ' +
                         f'{train.index[0]} to {train.index[-1]}')
 
             if test is not None:
-                logger.info(f'\ttesting on {len(test)} points from' +
+                logger.info(f'\ttesting on {len(test)} points from ' +
                             f'{test.index[0]} to {test.index[-1]}')
 
             if not self.baseline_params_columns[col]['non_par_baseline']:
@@ -228,6 +228,8 @@ class TSAR:
                     **self.baseline_params_columns[col])
 
             if traintest and self.return_performance_statistics:
+                logger.info(f'baseline prediction RMSE: {optimal_rmse}')
+                logger.info(f'test data std.dev.: {test.std()}')
                 self.baseline_RMSE[col] = optimal_rmse
 
     def _build_matrices(self):

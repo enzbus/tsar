@@ -58,7 +58,7 @@ def pandas_index_to_θ_index(index, used_features):
 def build_block_diag_diff(N, diff, period):
     num_blocks = N // period
     assert(N / period == N // period)
-    # print(f'Building block diag. with {num_blocks} blocks.')
+    logger.debug(f'Building block diag. with {num_blocks} blocks.')
     # TODO refactor, make a numba-friendly for-loop
     return sp.block_diag([build_cyclic_diff(period, diff)] * num_blocks)
 
@@ -67,14 +67,14 @@ def build_block_diag_diff(N, diff, period):
 
 def build_cyclic_diff(N, diff):
     """Build cyclic diff matrices for regularization."""
-    #  print(f'Building matrix of size {N} with diff {diff}.')
+    logger.debug(f'Building matrix of size {N} with diff {diff}.')
     return sp.eye(N) - sp.eye(N, k=diff) - sp.eye(N, k=diff - N)
 
 
 def make_cyclic_regularization_mats(used_features):
     """Build cyclic regularization matrices."""
     QTQ = []
-    print('building reg matrices')
+    logger.debug('building reg matrices')
     cum_periods = cumulative_periods(used_features)
     for i in range(len(used_features)):
         diff = cum_periods[i]
@@ -88,7 +88,7 @@ def make_least_squares_cost(data, used_features):
     """Build LS penalty part of the system."""
     NDATA = len(data)
     N = cumulative_periods(used_features)[-1]
-    print(f'Making quadratic loss term for {NDATA} obs.')
+    logger.debug(f'Making quadratic loss term for {NDATA} obs.')
     P = sp.coo_matrix((
         np.ones(NDATA),
         (range(NDATA), pandas_index_to_θ_index(data.index, used_features))),
@@ -111,8 +111,8 @@ def cg_solve(matrix, vector, x0=None):
     # print([matrix[i, i] for i in range(5)])
     s = time.time()
     result = spl.cg(matrix, vector, x0=x0)
-    print(f'CG took {time.time()-s} seconds.')
-    print(result)
+    logger.debug(f'CG took {time.time()-s} seconds.')
+    # print(result)
     # if status != 0:
     #    raise Exception("CG failed.")
     return result[0]
@@ -148,7 +148,7 @@ def data_to_residual(data: pd.Series,
 
 def residual_to_data(residual: pd.Series, std: float,
                      used_features, theta: np.ndarray,  **kwargs) -> pd.Series:
-    return residual * std + compute_baseline(data.index,
+    return residual * std + compute_baseline(residual.index,
                                              used_features,
                                              theta)
 
