@@ -132,14 +132,14 @@ class TSAR:
     def fit_train_test(self):
         logger.debug('Fitting model on train and test data.')
         self._fit_ranges(self.train)
-        self._fit_baselines(self.train, self.test)
+        self._fit_baselines(self.data, traintest=True)
         self._fit_low_rank_plus_block_diagonal_AR(self.train, self.test)
         self.AR_RMSE, self.gradients = self.test_AR(self.test)
 
     def fit(self):
         logger.debug('Fitting model on whole data.')
         self._fit_ranges(self.data)
-        self._fit_baselines(self.data, None)
+        self._fit_baselines(self.data, traintest=False)
         self._fit_low_rank_plus_block_diagonal_AR(self.data, None)
 
     @property
@@ -176,18 +176,36 @@ class TSAR:
         return prediction.clip(self._min, self._max, axis=1)
 
     def _fit_baselines(self,
-                       train: pd.DataFrame,
-                       test: Optional[pd.DataFrame] = None):
+                       data: pd.DataFrame,
+                       traintest: bool):
 
         logger.info('Fitting baselines.')
 
-        if (test is not None) and self.return_performance_statistics:
-            logger.debug('Computing baseline RMSE.')
+        if traintest and self.return_performance_statistics:
+            #logger.debug('Computing baseline RMSE.')
             self.baseline_RMSE = pd.Series(index=self.columns)
 
         # TODO parallelize
         for col in self.columns:
-            logger.debug('Fitting baseline on column %s.' % col)
+            logger.info('Fitting baseline on column %s.' % col)
+
+            col_data = data[col].dropna()
+
+            if traintest:
+                train = col_data.iloc[
+                    :int(len(col_data) * self.train_test_split)]
+                test = col_data.iloc[
+                    int(len(col_data) * self.train_test_split):]
+
+            else:
+                train, test = col_data, None
+
+            logger.info(f'\ttraining on {len(train)} points from' +
+                        f'{train.index[0]} to {train.index[-1]}')
+
+            if test is not None:
+                logger.info(f'\ttesting on {len(test)} points from' +
+                            f'{test.index[0]} to {test.index[-1]}')
 
             if not self.baseline_params_columns[col]['non_par_baseline']:
 
@@ -198,8 +216,7 @@ class TSAR:
                     self.baseline_params_columns[col]['trend'],\
                     self.baseline_results_columns[col]['baseline_fit_result'], \
                     optimal_rmse = fit_baseline(
-                    train[col],
-                    test[col] if test is not None else None,
+                    train, test,
                     **self.baseline_params_columns[col])
             else:
 
@@ -207,11 +224,10 @@ class TSAR:
                     self.baseline_params_columns[col]['lambdas'],\
                     self.baseline_results_columns[col]['theta'], \
                     optimal_rmse = non_par_fit_baseline(
-                    train[col],
-                    test[col] if test is not None else None,
+                    train, test,
                     **self.baseline_params_columns[col])
 
-            if (test is not None) and self.return_performance_statistics:
+            if traintest and self.return_performance_statistics:
                 self.baseline_RMSE[col] = optimal_rmse
 
     def _build_matrices(self):
