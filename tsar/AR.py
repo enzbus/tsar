@@ -210,7 +210,9 @@ def _fit_low_rank_plus_block_diagonal_ar(
         # cached_svd: dict,
         # cached_factor_lag_covariances: dict,
         full_covariance: bool,
-        full_covariance_blocks: List):
+        full_covariance_blocks: List,
+        noise_correction: bool,
+        variables_weight: np.array):
 
     logger.debug('Fitting low rank plus diagonal model.')
 
@@ -228,7 +230,9 @@ def _fit_low_rank_plus_block_diagonal_ar(
         # if rank not in cached_svd:
         #     cached_svd[rank] = iterative_denoised_svd(train, rank)
         # u, s, v = cached_svd[rank]
-        u, s, v = iterative_denoised_svd(train, rank)
+        u, s, v = iterative_denoised_svd(
+            train * variables_weight, rank, noise_correction)
+        v /= variables_weight.values
 
     # if rank not in cached_factor_lag_covariances:
     #     cached_factor_lag_covariances[rank] = [[] for i in range(rank)]
@@ -263,7 +267,7 @@ def _fit_low_rank_plus_block_diagonal_ar(
 def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
                  D_blocks, D_matrix,
                  # D_inv,  # min_rows=5,
-                 quadratic_regularization: np.array,
+                 quadratic_regularization: float,
                  prediction_mask, real_values,
                  max_eval=3,
                  do_anomaly_score=False):
@@ -358,7 +362,7 @@ def rmse_AR(V, S, S_inv, D_blocks, D_matrix,
             past_lag, future_lag, test: pd.DataFrame,
             available_data_lags_columns: dict,
             ignore_prediction_columns: list,
-            quadratic_regularization: np.array):
+            quadratic_regularization: float):
 
     lag = past_lag + future_lag
     test_flattened = make_sliced_flattened_matrix(test.values, lag)
@@ -461,7 +465,9 @@ def fit_low_rank_plus_block_diagonal_AR(train: pd.DataFrame,
                                         ignore_prediction_columns,
                                         full_covariance,
                                         full_covariance_blocks,
-                                        quadratic_regularization):
+                                        quadratic_regularization: float,
+                                        noise_correction: bool,
+                                        variables_weight: np.array):
 
     logger.info('Fitting low-rank plus block diagonal AR')
     logger.info('Train table has shape (%d, %d)' % (train.shape))
@@ -488,7 +494,9 @@ def fit_low_rank_plus_block_diagonal_AR(train: pd.DataFrame,
                     train, lag, rank,  # cached_lag_covariances, cached_svd,
                     # cached_factor_lag_covariances,
                     full_covariance,
-                    full_covariance_blocks)
+                    full_covariance_blocks,
+                    noise_correction,
+                    variables_weight)
 
             V, S, S_inv, D_blocks, D_matrix = build_matrices(s_times_v,
                                                              S_lagged_covariances,
@@ -517,7 +525,9 @@ def fit_low_rank_plus_block_diagonal_AR(train: pd.DataFrame,
             train, lag, rank,  # cached_lag_covariances,
             # cached_svd, cached_factor_lag_covariances,
             full_covariance,
-            full_covariance_blocks)
+            full_covariance_blocks,
+            noise_correction,
+            variables_weight)
 
     return past_lag, rank, quadratic_regularization, \
         s_times_v, S_lagged_covariances, block_lagged_covariances

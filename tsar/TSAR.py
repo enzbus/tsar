@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 
 from .baseline import fit_baseline, data_to_residual, residual_to_data
 from .AR import fit_low_rank_plus_block_diagonal_AR, \
-    rmse_AR, anomaly_score, build_matrices
+    rmse_AR, anomaly_score, build_matrices, \
+    make_sliced_flattened_matrix, make_prediction_mask, guess_matrix
 from .utils import DataFrameRMSE, check_multidimensional_time_series
 from .linear_algebra import *
 from .non_par_baseline import fit_baseline as non_par_fit_baseline, \
@@ -44,16 +45,18 @@ class TSAR:
 
     def __init__(self, data: pd.DataFrame,
                  future_lag: int,
-                 baseline_params_columns: dict = {},
+                 baseline_params_columns: dict = None,
                  past_lag: Optional[int] = None,
                  rank: Optional[int] = None,
                  return_performance_statistics=True,
                  train_test_split: float = 2 / 3,
-                 available_data_lags_columns: dict = {},
+                 available_data_lags_columns: dict = None,
                  ignore_prediction_columns: List[Any] = [],
                  full_covariance_blocks: List[Any] = [],
-                 full_covariance=False,
-                 quadratic_regularization=None):
+                 full_covariance: bool=False,
+                 quadratic_regularization: float=0.,
+                 noise_correction: bool =False,
+                 prediction_variables_weight: Optional[float]=None):
 
         # TODO REMOVE NULL COLUMNS OR REFUSE THEM
 
@@ -68,16 +71,21 @@ class TSAR:
         self.rank = rank
         self.train_test_split = train_test_split
         self.baseline_params_columns = baseline_params_columns
+        if baseline_params_columns is None:
+            self.baseline_params_columns = {}
         self.return_performance_statistics = return_performance_statistics
         self.baseline_results_columns = {}
         self.available_data_lags_columns = available_data_lags_columns
+        if available_data_lags_columns is None:
+            self.available_data_lags_columns = {}
         self.ignore_prediction_columns = ignore_prediction_columns
+
         self.full_covariance = full_covariance
-        if quadratic_regularization is None:
-            quadratic_regularization = np.zeros(self.lag * self.data.shape[1])
         self.quadratic_regularization = quadratic_regularization
 
         self.full_covariance_blocks = full_covariance_blocks
+        self.noise_correction = noise_correction
+        self.prediction_variables_weight = prediction_variables_weight
 
         # TODO tell why
         assert len(sum(full_covariance_blocks, [])) == \
@@ -122,12 +130,49 @@ class TSAR:
         # del self.data
 
     @property
+    def variables_weight(self):
+
+        weights = pd.Series(1., index=self.columns)
+
+        if (self.prediction_variables_weight is None) or \
+                (not len(self.ignore_prediction_columns)):
+            return weights
+
+        tot_weight = len(self.columns)
+        prediction_weight = self.prediction_variables_weight * tot_weight
+        predictive_weight = tot_weight - prediction_weight
+
+        weights[self.prediction_columns] = np.sqrt(
+            prediction_weight / len(self.prediction_columns))
+
+        weights[self.ignore_prediction_columns] = np.sqrt(
+            predictive_weight / len(self.ignore_prediction_columns))
+
+        assert np.isclose((weights**2).sum(), tot_weight)
+        assert np.isclose((weights[self.prediction_columns]**2).sum(),
+                          (weights[self.ignore_prediction_columns]**2).sum())
+
+        return weights
+
+    @property
+    def prediction_columns(self):
+        return set(self.columns).difference(self.ignore_prediction_columns)
+
+    @property
     def lag(self):
         return self.past_lag + self.future_lag
 
     @property
     def factors(self):
         return pd.DataFrame(self.V.todense()[::self.lag, ::self.lag], index=self.columns).T
+
+    @property
+    def normalized_factors(self):
+        return (self.factors.T / np.sqrt((self.factors**2).mean(1))).T
+
+    @property
+    def factors_coverage(self):
+        return np.sqrt((self.normalized_factors**2).mean())
 
     def fit_train_test(self):
         logger.debug('Fitting model on train and test data.')
@@ -157,6 +202,11 @@ class TSAR:
         return pd.DataFrame(self.Sigma,
                             index=self.large_matrix_multiindex,
                             columns=self.large_matrix_multiindex)
+
+    @property
+    def single_variable_lag_covariances(self):
+        return pd.DataFrame([el.flatten() for el in self.block_lagged_covariances],
+                            index=self.columns)
 
     @property
     def train(self):
@@ -261,7 +311,9 @@ class TSAR:
                 self.ignore_prediction_columns,
                 self.full_covariance,
                 self.full_covariance_blocks,
-                self.quadratic_regularization)
+                self.quadratic_regularization,
+                self.noise_correction
+                self.variables_weight)
 
         self._build_matrices()
 
@@ -326,12 +378,43 @@ class TSAR:
                                        **self.baseline_results_columns[column.name],
                                        **self.baseline_params_columns[column.name])
 
+    def predict_many(self,
+                     data: pd.DataFrame):
+
+        check_multidimensional_time_series(data, self.frequency, self.columns)
+
+        data = data[self.columns]
+        residuals = self._residual(data)
+        residuals_flattened = make_sliced_flattened_matrix(
+            residuals.values, self.lag)
+
+        ignore_prediction_col_mask = residuals.columns.isin(
+            self.ignore_prediction_columns)
+
+        prediction_mask, unknown_mask = make_prediction_mask(
+            self.available_data_lags_columns, ignore_prediction_col_mask,
+            residuals.columns, self.past_lag, self.future_lag)
+        real_values = pd.DataFrame(residuals_flattened, copy=True)
+        residuals_flattened[:, unknown_mask] = np.nan
+        gradients, total_num_predictions_made = guess_matrix(residuals_flattened, self.V, self.S,
+                                                             self.S_inv, self.D_blocks, self.D_matrix,
+                                                             quadratic_regularization=self.quadratic_regularization,
+                                                             prediction_mask=prediction_mask,
+                                                             real_values=real_values)
+
+        res = pd.DataFrame(data=residuals_flattened,
+                           columns=self.large_matrix_multiindex.reorder_levels(
+                               (1, 0)),
+                           index=data.index[self.past_lag:len(data)
+                                            - self.future_lag + 1])
+
+        return {(fut_lag + 1): self._invert_residual(res.loc[:, fut_lag + 1]) for fut_lag in range(self.future_lag)}
+
     def predict(self,
                 data: pd.DataFrame,
                 prediction_time:
                 Optional[pd.Timestamp]=None,
-                return_sigmas=False,
-                quadratic_regularization=None) -> pd.DataFrame:
+                return_sigmas=False) -> pd.DataFrame:
         check_multidimensional_time_series(data, self.frequency, self.columns)
 
         data = data[self.columns]
@@ -373,9 +456,7 @@ class TSAR:
                                                   prediction_mask=~known_mask,
                                                   real_result=None,
                                                   return_conditional_covariance=return_sigmas,
-                                                  quadratic_regularization=quadratic_regularization if
-                                                  quadratic_regularization is not None else
-                                                  self.quadratic_regularization)
+                                                  quadratic_regularization=self.quadratic_regularization)
 
         # res = symm_low_rank_plus_block_diag_schur(
         #     V=self.V,
@@ -417,6 +498,11 @@ class TSAR:
         else:
             return self._invert_residual(predicted_residuals)
 
+    # def robust_predict(self, data: pd.DataFrame,
+    #                    prediction_time:
+    #                    Optional[pd.Timestamp]=None,
+    #                    return_sigmas=False):
+
     def baseline(self, prediction_window: pd.DatetimeIndex) -> pd.DataFrame:
         return self._invert_residual(pd.DataFrame(0., index=prediction_window,
                                                   columns=self.columns))
@@ -451,7 +537,8 @@ class TSAR:
                       'quadratic_regularization': self.quadratic_regularization,
                       's_times_v': self.s_times_v,
                       'S_lagged_covariances': self.S_lagged_covariances,
-                      'block_lagged_covariances': self.block_lagged_covariances}
+                      'block_lagged_covariances': self.block_lagged_covariances,
+                      'ignore_prediction_columns': self.ignore_prediction_columns}
 
         return gzip.compress(pickle.dumps(model_dict,
                                           protocol=pickle.HIGHEST_PROTOCOL))

@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 import scipy.sparse as sp
 
 
-def _iterative_denoised_svd(dataframe, P, T=10):
+def _iterative_denoised_svd(dataframe, P, noise_correction, T=10):
 
     if P == 0:
         return np.zeros((dataframe.shape[0], 0)), np.zeros(0), \
@@ -47,8 +47,12 @@ def _iterative_denoised_svd(dataframe, P, T=10):
             s = s[::-1]
             v = v[::-1]
         else:
-            u, s, v = spl.svds(dataframe.fillna(y), P + 1)
-        dn_u, dn_s, dn_v = u[:, 1:], s[1:] - s[0], v[1:]
+            u, s, v = spl.svds(dataframe.fillna(y), P +
+                               (1 if noise_correction else 0))
+        if noise_correction:
+            dn_u, dn_s, dn_v = u[:, 1:], s[1:] - s[0], v[1:]
+        else:
+            dn_u, dn_s, dn_v = u[:, :], s[:], v[:]
         new_y = dn_u @ np.diag(dn_s) @ dn_v
         # new_y = u @ np.diag(s) @ v
         logger.debug('Iterative svd, MSE(y_%d - y_{%d}) = %.2e' % (
@@ -59,16 +63,19 @@ def _iterative_denoised_svd(dataframe, P, T=10):
     # return u, s, v
 
 
-def iterative_denoised_svd(dataframe, P):
+def iterative_denoised_svd(dataframe, P, noise_correction):
 
     if P == 0:
         return np.zeros((dataframe.shape[0], 0)), np.zeros(0), \
             np.zeros((0, dataframe.shape[1])),
 
-    fill_rank = int(min(dataframe.shape) * (~dataframe.isnull()).sum().sum() /
-                    (dataframe.shape[0] * dataframe.shape[1]))
+    # fill_rank = int(min(dataframe.shape) * (~dataframe.isnull()).sum().sum() /
+    #                 (dataframe.shape[0] * dataframe.shape[1]))
+    fill_rank = P + (1 if noise_correction else 0)
     print('fill_rank:', fill_rank)
-    u_big, s_big, v_big = _iterative_denoised_svd(dataframe, P=fill_rank - 1)
+    u_big, s_big, v_big = _iterative_denoised_svd(dataframe,
+                                                  P=P,
+                                                  noise_correction=noise_correction)
     return (u_big[:, -P:],  # [:, ::-1],
             s_big[-P:],  # [::-1],
             v_big[-P:],  # [::-1]
@@ -146,30 +153,30 @@ def symm_slice_blocks(blocks, block_indexes, mask):
 #     return res
 
 
-def alternative_symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
-                                                    S: np.matrix,
-                                                    S_inv: np.matrix,
-                                                    D_blocks,
-                                                    D_blocks_indexes,
-                                                    D_matrix: np.matrix,
-                                                    known_mask, known_matrix,
-                                                    return_conditional_covariance=False,
-                                                    quadratic_regularization: float = 0.):
+# def alternative_symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
+#                                                     S: np.matrix,
+#                                                     S_inv: np.matrix,
+#                                                     D_blocks,
+#                                                     D_blocks_indexes,
+#                                                     D_matrix: np.matrix,
+#                                                     known_mask, known_matrix,
+#                                                     return_conditional_covariance=False,
+# quadratic_regularization: float = 0.):
 
-    logger.debug('Making Sigma')
-    Sigma = V @ S @ V.T + D_matrix
+#     logger.debug('Making Sigma')
+#     Sigma = V @ S @ V.T + D_matrix
 
-    B = Sigma[~known_mask].T[known_mask].T
-    C = Sigma[known_mask].T[known_mask].T
-    logger.debug('Inverting C')
-    Cinv = np.linalg.inv(C + quadratic_regularization * np.eye(C.shape[0]))
-    res = B @ Cinv @ known_matrix.T
+#     B = Sigma[~known_mask].T[known_mask].T
+#     C = Sigma[known_mask].T[known_mask].T
+#     logger.debug('Inverting C')
+#     Cinv = np.linalg.inv(C + quadratic_regularization * np.eye(C.shape[0]))
+#     res = B @ Cinv @ known_matrix.T
 
-    if return_conditional_covariance:
-        logger.debug('Building conditional covariance')
-        return res, Sigma[~known_mask].T[~known_mask].T - B @ Cinv @ B.T
+#     if return_conditional_covariance:
+#         logger.debug('Building conditional covariance')
+#         return res, Sigma[~known_mask].T[~known_mask].T - B @ Cinv @ B.T
 
-    return res
+#     return res
 
 
 def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
@@ -182,7 +189,7 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
                                         known_matrix,
                                         prediction_mask,
                                         real_result,
-                                        quadratic_regularization: np.array,
+                                        quadratic_regularization: float,
                                         return_conditional_covariance=False,
                                         do_anomaly_score=False,
                                         return_gradient=False):
@@ -217,8 +224,7 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
     for block in sliced_D_blocks:
         #how_many_var_in_bloc = block.shape[0] // lag
         inverse_blocks.append(np.linalg.inv(
-            block + np.diag(quadratic_regularization[count:
-                                                     count + block.shape[0]])
+            block + np.eye(block.shape[0]) * quadratic_regularization
             #quadratic_regularization * np.eye(block.shape[0])
         ))
         count += block.shape[0]
