@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 from unittest import TestCase
-from tsar import *
+from tsar import tsar
 
 import pandas as pd
 
@@ -29,7 +29,7 @@ class TestTsar(TestCase):
 
     def test_scalar(self):
 
-        model = tsar(self.data, future_lag=4 * 6)
+        _ = tsar(self.data, P=4*6, F=4*6, quadratic_regularization=1.)
 
     # def __init__(self, data: pd.DataFrame,
     #              future_lag: int,
