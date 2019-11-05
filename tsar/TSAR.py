@@ -312,7 +312,7 @@ class TSAR:
                 self.full_covariance,
                 self.full_covariance_blocks,
                 self.quadratic_regularization,
-                self.noise_correction
+                self.noise_correction,
                 self.variables_weight)
 
         self._build_matrices()
