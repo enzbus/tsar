@@ -15,6 +15,15 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
+from .non_par_baseline import fit_baseline as non_par_fit_baseline, \
+    data_to_residual as non_par_data_to_residual, \
+    residual_to_data as non_par_residual_to_data
+from .linear_algebra import *
+from .utils import DataFrameRMSE, check_multidimensional_time_series
+from .AR import fit_low_rank_plus_block_diagonal_AR, \
+    rmse_AR, anomaly_score, build_matrices, \
+    make_sliced_flattened_matrix, make_prediction_mask, guess_matrix
+from .baseline import fit_baseline, data_to_residual, residual_to_data
 import pandas as pd
 import pickle
 import gzip
@@ -24,15 +33,6 @@ from typing import Optional, List, Any
 logger = logging.getLogger(__name__)
 
 
-from .baseline import fit_baseline, data_to_residual, residual_to_data
-from .AR import fit_low_rank_plus_block_diagonal_AR, \
-    rmse_AR, anomaly_score, build_matrices, \
-    make_sliced_flattened_matrix, make_prediction_mask, guess_matrix
-from .utils import DataFrameRMSE, check_multidimensional_time_series
-from .linear_algebra import *
-from .non_par_baseline import fit_baseline as non_par_fit_baseline, \
-    data_to_residual as non_par_data_to_residual, \
-    residual_to_data as non_par_residual_to_data
 #from .linear_algebra import dense_schur
 
 
@@ -41,7 +41,7 @@ from .non_par_baseline import fit_baseline as non_par_fit_baseline, \
 # - same for results of matrix Schur
 
 
-class TSAR:
+class tsar:
 
     def __init__(self, data: pd.DataFrame,
                  future_lag: int,
@@ -53,10 +53,10 @@ class TSAR:
                  available_data_lags_columns: dict = None,
                  ignore_prediction_columns: List[Any] = [],
                  full_covariance_blocks: List[Any] = [],
-                 full_covariance: bool=False,
-                 quadratic_regularization: float=0.,
-                 noise_correction: bool =False,
-                 prediction_variables_weight: Optional[float]=None):
+                 full_covariance: bool = False,
+                 quadratic_regularization: float = 0.,
+                 noise_correction: bool = False,
+                 prediction_variables_weight: Optional[float] = None):
 
         # TODO REMOVE NULL COLUMNS OR REFUSE THEM
 
@@ -413,7 +413,7 @@ class TSAR:
     def predict(self,
                 data: pd.DataFrame,
                 prediction_time:
-                Optional[pd.Timestamp]=None,
+                Optional[pd.Timestamp] = None,
                 return_sigmas=False) -> pd.DataFrame:
         check_multidimensional_time_series(data, self.frequency, self.columns)
 
@@ -545,7 +545,7 @@ class TSAR:
 
 
 def load_model(model_compressed):
-    model = TSAR.__new__(TSAR)
+    model = tsar.__new__(tsar)
     model.__dict__.update(pickle.loads(gzip.decompress(model_compressed)))
     model._build_matrices()
     return model

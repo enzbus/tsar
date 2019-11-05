@@ -27,7 +27,7 @@ class TestTsar(TestCase):
 
     def test_scalar(self):
 
-        model = TSAR(self.data, future_lag=4 * 6)
+        model = tsar(self.data, future_lag=4 * 6)
 
     # def __init__(self, data: pd.DataFrame,
     #              future_lag: int,
