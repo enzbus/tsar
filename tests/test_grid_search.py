@@ -19,7 +19,7 @@ from unittest import TestCase
 import pandas as pd
 import numpy as np
 
-from .greedy_grid_search import greedy_grid_search
+from tsar.greedy_grid_search import greedy_grid_search
 
 
 class GreedyGridSearchTest(TestCase):

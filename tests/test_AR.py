@@ -17,8 +17,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
 from unittest import TestCase
-from .AR import *
-from .baseline import *
+from tsar.AR import *
+from tsar.baseline import *
 
 
 class TestScalarAR(TestCase):
@@ -79,7 +79,8 @@ class TestScalarAR(TestCase):
                                                 future_lag,
                                                 past_lag=None,
                                                 rank=None,
-                                                available_data_lags_columns={0: 0},
+                                                available_data_lags_columns={
+                                                    0: 0},
                                                 ignore_prediction_columns=[])
 
         self.assertEqual(past_lag, 14)
@@ -114,7 +115,8 @@ class TestScalarAR(TestCase):
                                                 future_lag,
                                                 past_lag=None,
                                                 rank=None,
-                                                available_data_lags_columns={0: 0},
+                                                available_data_lags_columns={
+                                                    0: 0},
                                                 ignore_prediction_columns=[])
 
         self.assertEqual(past_lag, 20)
@@ -149,7 +151,8 @@ class TestScalarAR(TestCase):
                                                 future_lag,
                                                 past_lag=None,
                                                 rank=None,
-                                                available_data_lags_columns={0: 0},
+                                                available_data_lags_columns={
+                                                    0: 0},
                                                 ignore_prediction_columns=[])
 
         self.assertEqual(past_lag, 10)
@@ -195,7 +198,8 @@ class TestWithScalarWindData(TestCase):
                                                 future_lag,
                                                 past_lag=4 * 24 * 2,
                                                 rank=None,
-                                                available_data_lags_columns={0: 0},
+                                                available_data_lags_columns={
+                                                    0: 0},
                                                 ignore_prediction_columns=[])
 
         real_RMSE = std * rmse_AR(V, S, S_inv, D_blocks,

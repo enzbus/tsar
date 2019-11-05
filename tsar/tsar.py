@@ -44,10 +44,10 @@ logger = logging.getLogger(__name__)
 class tsar:
 
     def __init__(self, data: pd.DataFrame,
-                 future_lag: int,
+                 F: int,
                  baseline_params_columns: dict = None,
-                 past_lag: Optional[int] = None,
-                 rank: Optional[int] = None,
+                 P: Optional[int] = None,
+                 R: Optional[int] = None,
                  return_performance_statistics=True,
                  train_test_split: float = 2 / 3,
                  available_data_lags_columns: dict = None,
@@ -66,9 +66,9 @@ class tsar:
 
         self.data = data
         self.frequency = data.index.freq
-        self.future_lag = future_lag
-        self.past_lag = past_lag
-        self.rank = rank
+        self.future_lag = F
+        self.past_lag = P
+        self.rank = R
         self.train_test_split = train_test_split
         self.baseline_params_columns = baseline_params_columns
         if baseline_params_columns is None:

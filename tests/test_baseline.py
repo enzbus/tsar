@@ -16,7 +16,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 from unittest import TestCase
-from .baseline import *
+from tsar.baseline import *
 
 import pandas as pd
 

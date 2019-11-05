@@ -16,14 +16,16 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 from unittest import TestCase
-from . import *
+from tsar import *
+
+import pandas as pd
 
 
 class TestTsar(TestCase):
 
     data = pd.DataFrame(pd.read_pickle('data/wind_test_data.pickle'))
-    #train = data[data.index.year.isin([2010, 2011])]
-    #test = data[data.index.year == 2012]
+    # train = data[data.index.year.isin([2010, 2011])]
+    # test = data[data.index.year == 2012]
 
     def test_scalar(self):
 

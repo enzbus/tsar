@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
 from unittest import TestCase
-from .linear_algebra import *
+from tsar.linear_algebra import *
 
 import numpy as np
 
