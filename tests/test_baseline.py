@@ -16,9 +16,12 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 from unittest import TestCase
-from tsar.baseline import *
+from tsar.baseline import featurize_index_for_baseline, make_periods, \
+    fit_scalar_baseline, residual_to_data, fit_many_baselines,\
+    compute_baseline
 
 import pandas as pd
+import numpy as np
 
 
 class TestBaseline(TestCase):
@@ -40,26 +43,25 @@ class TestBaseline(TestCase):
         self.assertEqual(periods[2], 86400 / 3)
         self.assertEqual(periods[-1], 8766 * 3600)
 
-    data = pd.read_pickle('data/wind_test_data.pickle')
+    data = pd.read_pickle('tests/data/wind_test_data.pickle')
     train = data[data.index.year.isin([2010, 2011])]
     test = data[data.index.year == 2012]
 
     def test_fit_baseline(self):
         print(self.train.head())
 
-        std, daily_harmonics, weekly_harmonics, annual_harmonics, \
-            trend, baseline_fit_results, test_rmse = \
-            fit_baseline(
-                self.train,
-                self.test,
-                daily_harmonics=None,
-                weekly_harmonics=None,
-                annual_harmonics=None,
-                trend=None)
+        daily_harmonics, weekly_harmonics, annual_harmonics, \
+            trend, baseline_fit_results = \
+            fit_scalar_baseline(self.train,
+                                K_day=None,
+                                K_week=None,
+                                K_year=None,
+                                K_trend=None,
+                                train_test_ratio=2/3,
+                                gamma=1E-8, W=2)
 
         train_baseline = residual_to_data(
             pd.Series(0., index=self.train.index),
-            std,
             daily_harmonics,
             weekly_harmonics,
             annual_harmonics,
@@ -68,14 +70,13 @@ class TestBaseline(TestCase):
         print(train_baseline.head())
         self.assertTrue(np.isclose((self.train - train_baseline).mean(), 0))
 
-        print('test rmse from grid search', test_rmse)
+        # print('test rmse from grid search', test_rmse)
 
         train_rmse = (self.train - train_baseline).std()
         print('train rmse', train_rmse)
         self.assertTrue(train_rmse < 6)
 
         test_baseline = residual_to_data(pd.Series(0, index=self.test.index),
-                                         std,
                                          daily_harmonics,
                                          weekly_harmonics,
                                          annual_harmonics,
@@ -87,7 +88,55 @@ class TestBaseline(TestCase):
 
         self.assertTrue(np.abs(test_mean_error) < .4)
 
-        test_std = (self.test - test_baseline).std()
+        test_rmse = np.sqrt(((self.test - test_baseline)**2).mean())
         print('test std', test_rmse)
 
         self.assertTrue(test_rmse > train_rmse)
+
+    def test_fit_many_baselines(self):
+
+        mydata = pd.concat([self.train, self.test], axis=1)
+        mydata = pd.concat([mydata, mydata], axis=1)
+
+        mydata.columns = ['col%d' % i for i in range(mydata.shape[1])]
+
+        import time
+        s = time.time()
+        all_baseline_fit_results, baseline_params_dict = \
+            fit_many_baselines(mydata,
+                               {col: {} for col in mydata.columns},
+                               parallel=False)
+        non_par_time = (time.time()-s)
+        print('non parallel took %.2f seconds' % non_par_time)
+        print(baseline_params_dict)
+
+        bas1 = compute_baseline(self.test.index,
+                                **baseline_params_dict['col1'],
+                                baseline_fit_result=all_baseline_fit_results[
+                                    'col1'])
+
+        bas2 = compute_baseline(self.test.index,
+                                **baseline_params_dict['col2'],
+                                baseline_fit_result=all_baseline_fit_results[
+                                    'col2'])
+
+        print(np.mean(bas1 - bas2) / bas1.mean())
+        self.assertTrue(np.mean(bas1 - bas2) / bas1.mean() < 0.05)
+        print(np.mean((bas1 - bas2)**2) / (bas1**2).mean())
+        self.assertTrue(np.mean((bas1 - bas2)**2) / (bas1**2).mean() < 0.05)
+
+        s = time.time()
+        all_baseline_fit_results_par, baseline_params_dict_par = \
+            fit_many_baselines(mydata,
+                               {col: {} for col in mydata.columns},
+                               parallel=True)
+        par_time = (time.time()-s)
+        print('parallel took %.2f seconds' % par_time)
+
+        self.assertTrue(par_time < non_par_time)
+
+        print(baseline_params_dict_par)
+
+        self.assertEqual(baseline_params_dict_par, baseline_params_dict)
+        self.assertTrue(np.all(all_baseline_fit_results_par['col1'] ==
+                               all_baseline_fit_results['col1']))

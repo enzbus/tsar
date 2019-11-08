@@ -44,6 +44,8 @@ def greedy_grid_search(function,
             logger.debug('evaluating function at %s' % params)
             value = function(*params)
             logger.debug('function value = %f' % value)
+            if np.isnan(value):
+                raise ValueError('Greedy grid search found value nan.')
             results[tuple(current_counter)] = value
 
     evaluate_function()

@@ -16,7 +16,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 from unittest import TestCase
-import pandas as pd
 import numpy as np
 
 from tsar.greedy_grid_search import greedy_grid_search
