@@ -305,8 +305,8 @@ def fit_many_baselines(data,
     # (3) factor ggs wrapper into new function using
     # **kwargs and put it in ggs module
 
-def fit_baseline():
-    pass
+# def fit_baseline():
+#     pass
 # def fit_baseline(train, test,
 #                  K_day=None,
 #                  K_week=None,

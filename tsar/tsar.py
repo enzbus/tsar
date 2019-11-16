@@ -23,8 +23,9 @@ from .utils import DataFrameRMSE, check_multidimensional_time_series
 from .AR import fit_low_rank_plus_block_diagonal_AR, \
     rmse_AR, anomaly_score, build_matrices, \
     make_sliced_flattened_matrix, make_prediction_mask, guess_matrix
-from .baseline import fit_baseline, data_to_residual, residual_to_data
+from .baseline import fit_many_baselines, data_to_residual, residual_to_data
 import pandas as pd
+import numpy as np
 import pickle
 import gzip
 
@@ -39,6 +40,13 @@ logger = logging.getLogger(__name__)
 # TODOs
 # - cache results of vector autoregression (using hash(array.tostring()))
 # - same for results of matrix Schur
+
+def split_train(data, train_test_ratio):
+    return data.iloc[:int(len(data) * train_test_ratio)]
+
+
+def split_test(data, train_test_ratio):
+    return data.iloc[int(len(data) * train_test_ratio):]
 
 
 class tsar:
@@ -91,7 +99,7 @@ class tsar:
         assert len(sum(full_covariance_blocks, [])) == \
             len(set(sum(full_covariance_blocks, [])))
 
-        self.not_in_blocks = set(self.data.columns).difference(
+        self.not_in_blocks = set(data.columns).difference(
             sum(full_covariance_blocks, []))
 
         self.full_covariance_blocks += [[el] for el in self.not_in_blocks]
@@ -99,35 +107,56 @@ class tsar:
         # order columns by blocks
         self.columns = pd.Index(sum(self.full_covariance_blocks, []))
 
-        self.data = self.data[self.columns]
+        # self.data = self.data[self.columns]
+        reordered_data = data[self.columns]
 
-        #self.columns = self.data.columns
+        # self.columns = self.data.columns
+
+        # FIT
+        # ranges TODO put in "if" block
+        self._fit_ranges(reordered_data)
+
+        # baselines
+        self._prepare_baseline_params_and_results()
+        self._fit_baselines(reordered_data)
+
+        # this block will be rewritten
+        self._fit_low_rank_plus_block_diagonal_AR(
+            split_train(reordered_data, self.train_test_split),
+            split_test(reordered_data, self.train_test_split))
+        self.AR_RMSE, self.gradients = self.test_AR(
+            split_test(reordered_data, self.train_test_split))
+        self._fit_low_rank_plus_block_diagonal_AR(reordered_data, None)
+
+        # self.
+        # self.fit_train_test()
+        # self.fit()
+        # del self.data
+
+    def _prepare_baseline_params_and_results(self):
 
         for col in self.columns:
+            # TODO can be eliminated
             self.baseline_results_columns[col] = {}
+
             if col not in self.baseline_params_columns:
                 self.baseline_params_columns[col] = {}
 
             # non parametric baseline
-
             if 'non_par_baseline' not in self.baseline_params_columns[col]:
                 self.baseline_params_columns[col]['non_par_baseline'] = False
+
             if self.baseline_params_columns[col]['non_par_baseline'] and not \
-               'used_features' in self.baseline_params_columns[col]:
+               ('used_features' in self.baseline_params_columns[col]):
                 self.baseline_params_columns[col]['used_features'] = \
                     ['hour_of_day', 'day_of_week', 'month_of_year']
             if self.baseline_params_columns[col]['non_par_baseline'] and not \
-               'lambdas' in self.baseline_params_columns[col]:
+               ('lambdas' in self.baseline_params_columns[col]):
                 self.baseline_params_columns[col]['lambdas'] = \
                     [None] * len(self.baseline_params_columns[col]
                                  ['used_features'])
-
             if col not in self.available_data_lags_columns:
                 self.available_data_lags_columns[col] = 0
-
-        self.fit_train_test()
-        self.fit()
-        # del self.data
 
     @property
     def variables_weight(self):
@@ -164,7 +193,8 @@ class tsar:
 
     @property
     def factors(self):
-        return pd.DataFrame(self.V.todense()[::self.lag, ::self.lag], index=self.columns).T
+        return pd.DataFrame(self.V.todense()[::self.lag, ::self.lag],
+                            index=self.columns).T
 
     @property
     def normalized_factors(self):
@@ -174,18 +204,18 @@ class tsar:
     def factors_coverage(self):
         return np.sqrt((self.normalized_factors**2).mean())
 
-    def fit_train_test(self):
-        logger.debug('Fitting model on train and test data.')
-        self._fit_ranges(self.train)
-        self._fit_baselines(self.data, traintest=True)
-        self._fit_low_rank_plus_block_diagonal_AR(self.train, self.test)
-        self.AR_RMSE, self.gradients = self.test_AR(self.test)
-
-    def fit(self):
-        logger.debug('Fitting model on whole data.')
-        self._fit_ranges(self.data)
-        self._fit_baselines(self.data, traintest=False)
-        self._fit_low_rank_plus_block_diagonal_AR(self.data, None)
+    # def fit_train_test(self):
+    #     logger.debug('Fitting model on train and test data.')
+    #     self._fit_ranges(self.train)
+    #     self._fit_baselines(self.data, traintest=True)
+    #     self._fit_low_rank_plus_block_diagonal_AR(self.train, self.test)
+    #     self.AR_RMSE, self.gradients = self.test_AR(self.test)
+    #
+    # def fit(self):
+    #     logger.debug('Fitting model on whole data.')
+    #     self._fit_ranges(self.data)
+    #     self._fit_baselines(self.data, traintest=False)
+    #     self._fit_low_rank_plus_block_diagonal_AR(self.data, None)
 
     @property
     def Sigma(self):
@@ -208,14 +238,14 @@ class tsar:
         return pd.DataFrame([el.flatten() for el in self.block_lagged_covariances],
                             index=self.columns)
 
-    @property
-    def train(self):
-        return self.data.iloc[:int(len(self.data) * self.train_test_split)]
-
-    @property
-    def test(self):
-        return self.data.iloc[
-            int(len(self.data) * self.train_test_split):]
+    # @property
+    # def train(self):
+    #     return self.data.iloc[:int(len(self.data) * self.train_test_split)]
+    #
+    # @property
+    # def test(self):
+    #     return self.data.iloc[
+    #         int(len(self.data) * self.train_test_split):]
 
     def _fit_ranges(self, data):
         logger.info('Fitting ranges.')
@@ -226,61 +256,73 @@ class tsar:
         return prediction.clip(self._min, self._max, axis=1)
 
     def _fit_baselines(self,
-                       data: pd.DataFrame,
-                       traintest: bool):
+                       data: pd.DataFrame):
 
-        logger.info('Fitting baselines.')
+        # TODO pass W and gamma
+        self.baseline_results_columns, self.baseline_params_columns = \
+            fit_many_baselines(
+                data,
+                baseline_params_dict=self.baseline_params_columns,
+                train_test_ratio=self.train_test_split,
+                gamma=1E-8, W=2,
+                parallel=True)
 
-        if traintest and self.return_performance_statistics:
-            #logger.debug('Computing baseline RMSE.')
-            self.baseline_RMSE = pd.Series(index=self.columns)
-
-        # TODO parallelize
-        for col in self.columns:
-            logger.info('Fitting baseline on column %s.' % col)
-
-            col_data = data[col].dropna()
-
-            if traintest:
-                train = col_data.iloc[
-                    :int(len(col_data) * self.train_test_split)]
-                test = col_data.iloc[
-                    int(len(col_data) * self.train_test_split):]
-
-            else:
-                train, test = col_data, None
-
-            logger.info(f'\ttraining on {len(train)} points from ' +
-                        f'{train.index[0]} to {train.index[-1]}')
-
-            if test is not None:
-                logger.info(f'\ttesting on {len(test)} points from ' +
-                            f'{test.index[0]} to {test.index[-1]}')
-
-            if not self.baseline_params_columns[col]['non_par_baseline']:
-
-                self.baseline_results_columns[col]['std'], \
-                    self.baseline_params_columns[col]['daily_harmonics'], \
-                    self.baseline_params_columns[col]['weekly_harmonics'], \
-                    self.baseline_params_columns[col]['annual_harmonics'], \
-                    self.baseline_params_columns[col]['trend'],\
-                    self.baseline_results_columns[col]['baseline_fit_result'], \
-                    optimal_rmse = fit_baseline(
-                    train, test,
-                    **self.baseline_params_columns[col])
-            else:
-
-                self.baseline_results_columns[col]['std'], \
-                    self.baseline_params_columns[col]['lambdas'],\
-                    self.baseline_results_columns[col]['theta'], \
-                    optimal_rmse = non_par_fit_baseline(
-                    train, test,
-                    **self.baseline_params_columns[col])
-
-            if traintest and self.return_performance_statistics:
-                logger.info(f'baseline prediction RMSE: {optimal_rmse}')
-                logger.info(f'test data std.dev.: {test.std()}')
-                self.baseline_RMSE[col] = optimal_rmse
+    # def _fit_baselines(self,
+    #                    data: pd.DataFrame,
+    #                    traintest: bool):
+    #
+    #     logger.info('Fitting baselines.')
+    #
+    #     if traintest and self.return_performance_statistics:
+    #         #logger.debug('Computing baseline RMSE.')
+    #         self.baseline_RMSE = pd.Series(index=self.columns)
+    #
+    #     # TODO parallelize
+    #     for col in self.columns:
+    #         logger.info('Fitting baseline on column %s.' % col)
+    #
+    #         col_data = data[col].dropna()
+    #
+    #         if traintest:
+    #             train = col_data.iloc[
+    #                 :int(len(col_data) * self.train_test_split)]
+    #             test = col_data.iloc[
+    #                 int(len(col_data) * self.train_test_split):]
+    #
+    #         else:
+    #             train, test = col_data, None
+    #
+    #         logger.info(f'\ttraining on {len(train)} points from ' +
+    #                     f'{train.index[0]} to {train.index[-1]}')
+    #
+    #         if test is not None:
+    #             logger.info(f'\ttesting on {len(test)} points from ' +
+    #                         f'{test.index[0]} to {test.index[-1]}')
+    #
+    #         if not self.baseline_params_columns[col]['non_par_baseline']:
+    #
+    #             self.baseline_results_columns[col]['std'], \
+    #                 self.baseline_params_columns[col]['daily_harmonics'], \
+    #                 self.baseline_params_columns[col]['weekly_harmonics'], \
+    #                 self.baseline_params_columns[col]['annual_harmonics'], \
+    #                 self.baseline_params_columns[col]['trend'],\
+    #                 self.baseline_results_columns[col]['baseline_fit_result'], \
+    #                 optimal_rmse = fit_baseline(
+    #                 train, test,
+    #                 **self.baseline_params_columns[col])
+    #         else:
+    #
+    #             self.baseline_results_columns[col]['std'], \
+    #                 self.baseline_params_columns[col]['lambdas'],\
+    #                 self.baseline_results_columns[col]['theta'], \
+    #                 optimal_rmse = non_par_fit_baseline(
+    #                 train, test,
+    #                 **self.baseline_params_columns[col])
+    #
+    #         if traintest and self.return_performance_statistics:
+    #             logger.info(f'baseline prediction RMSE: {optimal_rmse}')
+    #             logger.info(f'test data std.dev.: {test.std()}')
+    #             self.baseline_RMSE[col] = optimal_rmse
 
     def _build_matrices(self):
 
