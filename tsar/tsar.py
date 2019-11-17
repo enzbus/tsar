@@ -34,7 +34,7 @@ from typing import Optional, List, Any
 logger = logging.getLogger(__name__)
 
 
-#from .linear_algebra import dense_schur
+# from .linear_algebra import dense_schur
 
 
 # TODOs
@@ -403,22 +403,28 @@ class tsar:
         return data.apply(self._column_residual)
 
     def _column_residual(self, column: pd.Series) -> pd.Series:
-        return (non_par_data_to_residual
-                if self.baseline_params_columns[column.name]['non_par_baseline']
-                else data_to_residual)(column,
-                                       **self.baseline_results_columns[column.name],
-                                       **self.baseline_params_columns[column.name])
+        return (non_par_data_to_residual if
+                (('non_par_baseline' in
+                  self.baseline_params_columns[column.name]) and
+                 self.baseline_params_columns[column.name]['non_par_baseline'])
+                else data_to_residual)(
+            column,
+            **self.baseline_params_columns[column.name],
+            baseline_fit_result=self.baseline_results_columns[column.name])
 
     def _invert_residual(self, data: pd.DataFrame) -> pd.DataFrame:
         return self._clip_prediction(
             data.apply(self._column_invert_residual))
 
     def _column_invert_residual(self, column: pd.Series) -> pd.Series:
-        return (non_par_residual_to_data
-                if self.baseline_params_columns[column.name]['non_par_baseline']
-                else residual_to_data)(column,
-                                       **self.baseline_results_columns[column.name],
-                                       **self.baseline_params_columns[column.name])
+        return (non_par_residual_to_data if
+                (('non_par_baseline' in
+                  self.baseline_params_columns[column.name]) and
+                 self.baseline_params_columns[column.name]['non_par_baseline'])
+                else residual_to_data)(
+            column,
+            baseline_fit_result=self.baseline_results_columns[column.name],
+            **self.baseline_params_columns[column.name])
 
     def predict_many(self,
                      data: pd.DataFrame):

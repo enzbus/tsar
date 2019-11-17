@@ -19,17 +19,34 @@ from unittest import TestCase
 from tsar import tsar
 
 import pandas as pd
+import numpy as np
 
 
 class TestTsar(TestCase):
 
-    data = pd.DataFrame(pd.read_pickle('data/wind_test_data.pickle'))
+    # data = pd.DataFrame(pd.read_pickle('tests/data/wind_test_data.pickle'))
     # train = data[data.index.year.isin([2010, 2011])]
     # test = data[data.index.year == 2012]
 
-    def test_scalar(self):
+    def generate_data(self, M, T=100, freq='1H'):
+        index = pd.date_range(start='2019-01-01', freq=freq, periods=T)
+        data = np.random.randn(T, M)
+        dataframe = pd.DataFrame(index=index, data=data)
 
-        _ = tsar(self.data, P=4*6, F=4*6, quadratic_regularization=1.)
+        for column in dataframe.columns:
+            dataframe[column] += np.random.randn(24)[index.hour]
+            dataframe[column] += np.random.randn(7)[index.weekday]
+            dataframe[column] += np.random.randn(12)[index.month]
+
+        return dataframe
+
+    def test_simple(self):
+
+        data = self.generate_data(M=2, T=1000, freq='1H')
+        _ = tsar(data, P=4*6, F=4*6, R=1, quadratic_regularization=1.)
+
+    # def test_scalar(self):
+    #     _ = tsar(self.data, P=4*6, F=4*6, R=1, quadratic_regularization=1.)
 
     # def __init__(self, data: pd.DataFrame,
     #              future_lag: int,
