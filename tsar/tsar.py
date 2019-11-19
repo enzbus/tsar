@@ -60,8 +60,8 @@ class tsar:
                  return_performance_statistics=True,
                  train_test_split: float = 2 / 3,
                  available_data_lags_columns: dict = None,
-                 ignore_prediction_columns: List[Any] = [],
-                 full_covariance_blocks: List[Any] = [],
+                 ignore_prediction_columns: Optional[List[Any]] = None,
+                 full_covariance_blocks: Optional[List[Any]] = None,
                  full_covariance: bool = False,
                  quadratic_regularization: float = 0.,
                  noise_correction: bool = False,
@@ -87,21 +87,24 @@ class tsar:
         self.available_data_lags_columns = available_data_lags_columns
         if available_data_lags_columns is None:
             self.available_data_lags_columns = {}
-        self.ignore_prediction_columns = ignore_prediction_columns
+        self.ignore_prediction_columns = [] if ignore_prediction_columns \
+            is None else ignore_prediction_columns
 
         self.full_covariance = full_covariance
         self.quadratic_regularization = quadratic_regularization
 
-        self.full_covariance_blocks = full_covariance_blocks
+        self.full_covariance_blocks = [] if full_covariance_blocks \
+            is None else full_covariance_blocks
+
         self.noise_correction = noise_correction
         self.prediction_variables_weight = prediction_variables_weight
 
         # TODO tell why
-        assert len(sum(full_covariance_blocks, [])) == \
-            len(set(sum(full_covariance_blocks, [])))
+        assert len(sum(self.full_covariance_blocks, [])) == \
+            len(set(sum(self.full_covariance_blocks, [])))
 
         self.not_in_blocks = set(data.columns).difference(
-            sum(full_covariance_blocks, []))
+            sum(self.full_covariance_blocks, []))
 
         self.full_covariance_blocks += [[el] for el in self.not_in_blocks]
 

@@ -20,8 +20,22 @@ from tsar import tsar
 
 import pandas as pd
 import numpy as np
+from scipy.sparse.linalg import eigs
+
 
 from tsar.generate_data import generate_data
+
+
+def evaluate_model(model, test, t):
+
+    F = model.future_lag
+    pred = model.predict(test.iloc[:t],
+                         prediction_time=test.index[t])
+
+    real = test.loc[test.index[t:t+F]]
+    mypred = pred.loc[test.index[t:t+F]]
+
+    return mypred, real
 
 
 class TestTsar(TestCase):
@@ -30,19 +44,99 @@ class TestTsar(TestCase):
     # train = data[data.index.year.isin([2010, 2011])]
     # test = data[data.index.year == 2012]
 
-    def test_daily(self):
+    def check_smaller(self, df1, df2):
+        pred_error = (df1**2).mean().mean()
+        zero_pred_error = (df2**2).mean().mean()
 
-        data = generate_data(M=2, T=10000, freq='1H')
+        print('MSE df1, MSE df2', pred_error, zero_pred_error)
+        self.assertTrue(pred_error < zero_pred_error)
+
+    def test_rank(self):
+
+        P = 24
+        F = 24
+
+        np.random.seed(1)
+        data = generate_data(M=20, T=2000, freq='6H',
+                             factor_autoreg_level=10.,
+                             R=5, trend=False)
+        train, test = data.iloc[:1000], data.iloc[1000:]
         print(data)
-        model = tsar(data, P=4*6, F=4*6, R=1, quadratic_regularization=1.)
+
+        model_1 = tsar(train, P=P, F=F, R=1, quadratic_regularization=.5)
+        model_2 = tsar(train, P=P, F=F, R=5, quadratic_regularization=.5)
+
+        mypred_1, real = evaluate_model(model_1, test, t=200)
+        mypred_2, real = evaluate_model(model_2, test, t=200)
+        # print(mypred, mypred-real)
+
+        self.check_smaller(mypred_1 - real, real)
+        self.check_smaller(mypred_2 - real, mypred_1 - real)
+
+    def test_past(self):
+
+        F = 24
+
+        np.random.seed(1)
+        data = generate_data(M=20, T=2000, freq='6H',
+                             factor_autoreg_level=10.,
+                             R=5, trend=False)
+        train, test = data.iloc[:1000], data.iloc[1000:]
+        print(data)
+
+        model_1 = tsar(train, P=1, F=F, R=2, quadratic_regularization=1E-1)
+        model_2 = tsar(train, P=10, F=F, R=2, quadratic_regularization=1E-1)
+        # model_3 = tsar(train, P=20, F=F, R=2, quadratic_regularization=2E-1)
+
+        mypred_1, real = evaluate_model(model_1, test, t=200)
+        mypred_2, real = evaluate_model(model_2, test, t=200)
+        # mypred_3, real = test_model(model_3, test, t=200)
+
+        print('largest eigvals model 1', eigs(model_1.Sigma, k=1)[0])
+        print('largest eigvals model 2', eigs(model_2.Sigma, k=1)[0])
+        # print('largest eigvals model 3', eigs(model_3.Sigma, k=1)[0])
+
+        # print(mypred, mypred-real)
+
+        self.check_smaller(mypred_1 - real, real)
+        self.check_smaller(mypred_2 - real, mypred_1 - real)
+        # self.check_smaller(mypred_3 - real, mypred_2 - real)
+
+    def test_daily(self):
+        # TODO change
+
+        P = 24
+        F = 24
+
+        data = generate_data(M=2, T=2000, freq='1D', trend=False)
+        train, test = data.iloc[:1000], data.iloc[1000:]
+        print(data)
+
+        model = tsar(train, P=P, F=F, R=1, quadratic_regularization=1.)
         print(model.baseline_params_columns)
         print(model.baseline_results_columns)
-        self.assertEqual(model.baseline_params_columns[0]['K_day'], 0)
-        self.assertEqual(model.baseline_params_columns[1]['K_day'], 0)
+
+        t = 100
+        pred = model.predict(test.iloc[:t],
+                             prediction_time=test.index[t])
+
+        real = test.loc[test.index[t:t+F]]
+        mypred = pred.loc[test.index[t:t+F]]
+
+        self.check_smaller(mypred - real, real)
+
+        # pred_error = ((mypred - real)**2).mean().mean()
+        # zero_pred_error = ((real)**2).mean().mean()
+        #
+        # print('pred err, zero pred err', pred_error, zero_pred_error)
+        # self.assertTrue(pred_error < zero_pred_error)
+
+        # self.assertEqual(model.baseline_params_columns[0]['K_day'], 0)
+        # self.assertEqual(model.baseline_params_columns[1]['K_day'], 0)
 
     def test_simple(self):
 
-        data = generate_data(M=2, T=10000, freq='1H')
+        data = generate_data(M=2, T=1000, freq='1H')
         model = tsar(data, P=4*6, F=4*6, R=1, quadratic_regularization=1.)
 
         norm_res = model.normalized_residual(data)
@@ -52,7 +146,7 @@ class TestTsar(TestCase):
 
         pred = model.predict(data, prediction_time=data.index[100])
         print(pred)
-        #assert False
+        # assert False
 
     # def test_scalar(self):
     #     _ = tsar(self.data, P=4*6, F=4*6, R=1, quadratic_regularization=1.)

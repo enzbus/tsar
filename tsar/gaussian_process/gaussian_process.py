@@ -21,7 +21,7 @@ import functools
 
 import numpy as np
 # import pandas as pd
-import numbas as nb
+import numba as nb
 import scipy.sparse as sp
 from scipy.sparse.linalg import svds
 
@@ -130,7 +130,7 @@ def compute_sigmas(residual):
     return sigmas
 
 
-def fit_gaussian_process(residual: np.array[float],
+def fit_gaussian_process(residual,
                          P: int,
                          F: int,
                          R: Optional[int] = None,

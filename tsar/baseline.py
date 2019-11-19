@@ -336,7 +336,7 @@ def fit_many_baselines(data,
 #
 #     if not len(train):
 #         logger.warning(
-#             f'Train column {train.name} is all NaNs, returning null baseline.')
+#       f'Train column {train.name} is all NaNs, returning null baseline.')
 #         return 1., 0, 0, 0, False, np.array([0.]), \
 #             np.sqrt((test.dropna()**2).mean()) if test is not None else None
 #

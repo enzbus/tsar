@@ -71,7 +71,7 @@ def generate_data(M, T=100,
                   R=1,
                   factor_autoreg_level=1.,
                   daily=True, weekly=True,
-                  annual=True, trend=False, freq='1H'):
+                  annual=True, trend=True, freq='1H'):
 
     # initialize data with noise
     noise = noise_level * np.random.randn(T, M)
