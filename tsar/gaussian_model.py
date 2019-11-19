@@ -15,6 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
+# from tsar.AR import invert_build_dense_covariance_matrix
 from typing import Optional
 import logging
 import functools
@@ -30,6 +31,27 @@ from scipy.sparse.linalg import svds
 logger = logging.getLogger(__name__)
 
 
+# @nb.njit()
+def check_toeplitz(square_matrix):
+    m, _ = square_matrix.shape
+    for i in range(m-1):
+        for j in range(m-1):
+            assert np.isclose(square_matrix[i, j], square_matrix[i+1, j+1])
+
+
+# @nb.njit()
+def invert_build_dense_covariance_matrix(cov, lag):
+    M = cov.shape[0]//lag
+    assert np.allclose(cov, cov.T)
+    lagged_covariances = np.empty((M, M, lag))
+    for i in range(M):
+        for j in range(M):
+            toeplitz_block = cov[i*lag:(i+1)*lag, j*lag:(j+1)*lag]
+            check_toeplitz(toeplitz_block)
+            lagged_covariances[i, j, :] = toeplitz_block[0, :]
+    return lagged_covariances
+
+
 @nb.jit(nopython=True)
 def lag_covariance_asymm(array1: np.ndarray, array2: np.ndarray, lag: int):
     "Compute c^{i,j}_tau where the i-th and j-th columns are provided."
@@ -41,7 +63,7 @@ def lag_covariance_asymm(array1: np.ndarray, array2: np.ndarray, lag: int):
 @nb.jit(nopython=True)
 def make_lagged_covariances(u: np.ndarray, lag: int):
     "Compute all c^{i,j}_tau, as an M x M x (P+F) array."
-    logger.info('Computing correlation coefficients.')
+    #logger.info('Computing correlation coefficients.')
     n = u.shape[1]
     lag_covs = np.zeros((n, n, lag))
     for i in range(n):
@@ -56,7 +78,7 @@ def make_lagged_covariances(u: np.ndarray, lag: int):
 @nb.jit(nopython=True)
 def make_Sigma_scalar_AR_asymm(lagged_covariances_pos, lagged_covariances_neg):
     """Utility function to build the block-toeplitz matrix Σ^."""
-    logger.info('Assembling Σ^ matrix.')
+    #logger.info('Assembling Σ^ matrix.')
     lag = len(lagged_covariances_pos)
     Sigma = np.empty((lag, lag))
     for i in range(lag):
@@ -120,8 +142,35 @@ def fit_low_rank_block_diagonal(lagged_covs, Sigma_hat, R, P, F):
             @ V[:, m*(P+F):(m+1)*(P+F)]
         original = Sigma_hat[m*(P+F):(m+1)*(P+F), m*(P+F):(m+1)*(P+F)]
         blocks.append(original-only_low_rank)
-    D = sp.bmat(blocks)
-    return Sigma_lr, V, D
+    D = sp.block_diag(blocks)
+    return Sigma_lr, V, blocks, D
+
+
+def _fit_low_rank_plus_block_diagonal_ar_using_eigendecomp(
+        data,
+        lag: int,
+        rank: int,
+        full_covariance: bool,
+        full_covariance_blocks,
+        noise_correction: bool,
+        variables_weight: np.array):
+    """Interface to current infrastructure."""
+
+    lagged_covs = make_lagged_covariances(data.values, lag=lag)
+    Sigma_hat = build_dense_covariance_matrix(lagged_covs)
+    v = compute_principal_directions(rank, lagged_covs)
+    V = make_V(v, lag=lag)
+    logger.info('Computing Sigma_lr')
+    Sigma_lr = V @ Sigma_hat @ V.T
+
+    # Sigma_lr, V, blocks, D = fit_low_rank_block_diagonal(
+    #     lagged_covs, Sigma_hat, R=rank, P=lag, F=0)
+    # return V, Sigma_lr, np.linalg.inv(Sigma_lr), blocks, D
+    M = data.shape[1]
+    block_lagged_covs = [lagged_covs[m:m+1, m:m+1, :] for m in range(M)]
+
+    return v, invert_build_dense_covariance_matrix(Sigma_lr, lag),\
+        block_lagged_covs
 
 
 def compute_sigmas(residual):
@@ -178,26 +227,26 @@ def fit_gaussian_process(residual,
     return R, λ, sigmas, Sigma_lr, V, D
 
 
-low_rank_plus_block_diagonal = \
-    namedtuple('D', 'Sigma_lr', 'V')
+# low_rank_plus_block_diagonal = \
+#     namedtuple('D', 'Sigma_lr', 'V')
 
 
-def fit_low_rank_block_diagonal(lagged_covs, Sigma_hat, R, P, F):
-    # lagged_covs = make_lagged_covariances(normalized_residual, lag=P+F)
-    # Sigma_hat = build_dense_covariance_matrix(lagged_covs)
-    v = compute_principal_directions(R, lagged_covs)
-    V = make_V(v, lag=P+F)
-    logger.info('Computing Sigma_lr')
-    Sigma_lr = V @ Sigma_hat @ V.T
-    logger.info('Computing D.')
-    blocks = []
-    for m in range(lagged_covs.shape[0]):
-        only_low_rank = V[:, m*(P+F):(m+1)*(P+F)].T @ Sigma_lr \
-            @ V[:, m*(P+F):(m+1)*(P+F)]
-        original = Sigma_hat[m*(P+F):(m+1)*(P+F), m*(P+F):(m+1)*(P+F)]
-        blocks.append(original-only_low_rank)
-    D = sp.bmat(blocks)
-    return Sigma_lr, V, D
+# def fit_low_rank_block_diagonal(lagged_covs, Sigma_hat, R, P, F):
+#     # lagged_covs = make_lagged_covariances(normalized_residual, lag=P+F)
+#     # Sigma_hat = build_dense_covariance_matrix(lagged_covs)
+#     v = compute_principal_directions(R, lagged_covs)
+#     V = make_V(v, lag=P+F)
+#     logger.info('Computing Sigma_lr')
+#     Sigma_lr = V @ Sigma_hat @ V.T
+#     logger.info('Computing D.')
+#     blocks = []
+#     for m in range(lagged_covs.shape[0]):
+#         only_low_rank = V[:, m*(P+F):(m+1)*(P+F)].T @ Sigma_lr \
+#             @ V[:, m*(P+F):(m+1)*(P+F)]
+#         original = Sigma_hat[m*(P+F):(m+1)*(P+F), m*(P+F):(m+1)*(P+F)]
+#         blocks.append(original-only_low_rank)
+#     D = sp.bmat(blocks)
+#     return Sigma_lr, V, D
 
 
 def woodbury_inverse(V: np.matrix,  # sp.csc.csc_matrix,
@@ -207,11 +256,11 @@ def woodbury_inverse(V: np.matrix,  # sp.csc.csc_matrix,
 
     Compute (V @ S @ V.T + D)^-1.
     """
-    #assert V.__class__ is sp.csc.csc_matrix
+    # assert V.__class__ is sp.csc.csc_matrix
     assert (S_inv.__class__ is np.matrix) or (S_inv.__class__ is np.ndarray)
     assert D_inv.__class__ is np.matrix
 
-    #V = V.todense()
+    # V = V.todense()
 
     logger.debug('Solving Woodbury inverse.')
     logger.debug('Building internal matrix.')

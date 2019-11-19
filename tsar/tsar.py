@@ -18,7 +18,8 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from .non_par_baseline import fit_baseline as non_par_fit_baseline, \
     data_to_residual as non_par_data_to_residual, \
     residual_to_data as non_par_residual_to_data
-from .linear_algebra import *
+from tsar.linear_algebra import symm_low_rank_plus_block_diag_schur, \
+    make_block_indexes
 from .utils import DataFrameRMSE, check_multidimensional_time_series
 from .AR import fit_low_rank_plus_block_diagonal_AR, \
     rmse_AR, anomaly_score, build_matrices, \
@@ -65,7 +66,9 @@ class tsar:
                  full_covariance: bool = False,
                  quadratic_regularization: float = 0.,
                  noise_correction: bool = False,
-                 prediction_variables_weight: Optional[float] = None):
+                 prediction_variables_weight: Optional[float] = None,
+                 use_svd_fit: bool = True,
+                 compute_gradients: bool = False):
 
         # TODO REMOVE NULL COLUMNS OR REFUSE THEM
 
@@ -73,7 +76,7 @@ class tsar:
 
         check_multidimensional_time_series(data)
 
-        #self.data = data
+        # self.data = data
         self.frequency = data.index.freq
         self.future_lag = F
         self.past_lag = P
@@ -116,6 +119,9 @@ class tsar:
         # self.data = self.data[self.columns]
         reordered_data = data[self.columns]
 
+        self.use_svd_fit = use_svd_fit
+        self.compute_gradients = compute_gradients
+
         # self.columns = self.data.columns
 
         # FIT
@@ -130,8 +136,10 @@ class tsar:
         self._fit_low_rank_plus_block_diagonal_AR(
             split_train(reordered_data, self.train_test_split),
             split_test(reordered_data, self.train_test_split))
-        self.AR_RMSE, self.gradients = self.test_AR(
+        self.compute_gradients = False
+        self.AR_RMSE = self.test_AR(
             split_test(reordered_data, self.train_test_split))
+        self.compute_gradients = compute_gradients
         self._fit_low_rank_plus_block_diagonal_AR(reordered_data, None)
 
         # self.
@@ -314,7 +322,7 @@ class tsar:
     #                 self.baseline_params_columns[col]['weekly_harmonics'], \
     #                 self.baseline_params_columns[col]['annual_harmonics'], \
     #                 self.baseline_params_columns[col]['trend'],\
-    #                 self.baseline_results_columns[col]['baseline_fit_result'], \
+    #        self.baseline_results_columns[col]['baseline_fit_result'], \
     #                 optimal_rmse = fit_baseline(
     #                 train, test,
     #                 **self.baseline_params_columns[col])
@@ -363,7 +371,8 @@ class tsar:
                 self.full_covariance_blocks,
                 self.quadratic_regularization,
                 self.noise_correction,
-                self.variables_weight)
+                self.variables_weight,
+                use_svd_fit=self.use_svd_fit)
 
         self._build_matrices()
 
@@ -371,19 +380,25 @@ class tsar:
 
         test = test[self.columns]
 
-        AR_RMSE, gradients = rmse_AR(self.V, self.S, self.S_inv,
-                                     self.D_blocks,
-                                     self.D_matrix,
-                                     self.past_lag, self.future_lag,
-                                     self._residual(test),
-                                     self.available_data_lags_columns,
-                                     self.ignore_prediction_columns,
-                                     self.quadratic_regularization)
+        _ = rmse_AR(self.V, self.S, self.S_inv,
+                    self.D_blocks,
+                    self.D_matrix,
+                    self.past_lag, self.future_lag,
+                    self._residual(test),
+                    self.available_data_lags_columns,
+                    self.ignore_prediction_columns,
+                    self.quadratic_regularization,
+                    do_gradients=self.compute_gradients)
+
+        if self.compute_gradients:
+            AR_RMSE, gradients = _
+        else:
+            AR_RMSE = _
 
         for col in AR_RMSE.columns:
             AR_RMSE[col] *= self.baseline_results_columns[col]['std']
 
-        return AR_RMSE, gradients
+        return (AR_RMSE, gradients) if self.compute_gradients else AR_RMSE
 
     def anomaly_score(self, test):
         test = test[self.columns]
@@ -438,6 +453,16 @@ class tsar:
             **self.baseline_results_columns[column.name],
             **self.baseline_params_columns[column.name])
 
+    # def predict_NEW(self, data: pd.DataFrame,
+    #                 prediction_time,
+    #                 return_sigmas=False):
+    #     check_multidimensional_time_series(data,
+    # self.frequency, self.columns)
+    #     # reorder columns
+    #     data = data[self.columns]
+    #
+    #     pass
+
     def predict_many(self,
                      data: pd.DataFrame):
 
@@ -456,11 +481,15 @@ class tsar:
             residuals.columns, self.past_lag, self.future_lag)
         real_values = pd.DataFrame(residuals_flattened, copy=True)
         residuals_flattened[:, unknown_mask] = np.nan
-        gradients, total_num_predictions_made = guess_matrix(residuals_flattened, self.V, self.S,
-                                                             self.S_inv, self.D_blocks, self.D_matrix,
-                                                             quadratic_regularization=self.quadratic_regularization,
-                                                             prediction_mask=prediction_mask,
-                                                             real_values=real_values)
+        # gradients, total_num_predictions_made = \
+        total_num_predictions_made = \
+            guess_matrix(
+                residuals_flattened, self.V, self.S,
+                self.S_inv, self.D_blocks, self.D_matrix,
+                quadratic_regularization=self.quadratic_regularization,
+                prediction_mask=prediction_mask,
+                real_values=real_values,
+                do_gradients=False)
 
         res = pd.DataFrame(data=residuals_flattened,
                            columns=self.large_matrix_multiindex.reorder_levels(
@@ -501,23 +530,24 @@ class tsar:
         # res = dense_schur(self.Sigma, known_mask=known_mask,
         #                   known_vector=residual_vectorized[known_mask],
         #                   return_conditional_covariance=return_sigmas,
-        #                   quadratic_regularization=quadratic_regularization if
+        #            quadratic_regularization=quadratic_regularization if
         #                   quadratic_regularization is not None else
         #                   self.quadratic_regularization)
 
-        res = symm_low_rank_plus_block_diag_schur(self.V,
-                                                  self.S,
-                                                  self.S_inv,
-                                                  self.D_blocks,
-                                                  self.D_blocks_indexes,
-                                                  self.D_matrix,
-                                                  known_mask=known_mask,
-                                                  known_matrix=np.matrix(
-                                                      residual_vectorized[known_mask]),
-                                                  prediction_mask=~known_mask,
-                                                  real_result=None,
-                                                  return_conditional_covariance=return_sigmas,
-                                                  quadratic_regularization=self.quadratic_regularization)
+        res = symm_low_rank_plus_block_diag_schur(
+            self.V,
+            self.S,
+            self.S_inv,
+            self.D_blocks,
+            self.D_blocks_indexes,
+            self.D_matrix,
+            known_mask=known_mask,
+            known_matrix=np.matrix(
+                residual_vectorized[known_mask]),
+            prediction_mask=~known_mask,
+            real_result=None,
+            return_conditional_covariance=return_sigmas,
+            quadratic_regularization=self.quadratic_regularization)
 
         # res = symm_low_rank_plus_block_diag_schur(
         #     V=self.V,

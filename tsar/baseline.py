@@ -236,8 +236,10 @@ def fit_scalar_baseline(data,
         K_trend=K_trend,
         baseline_fit_result=baseline_fit_result)
 
-    assert np.isclose(np.mean(residual), 0.)
-    std = np.sqrt(np.mean(residual**2))
+    assert np.isclose(np.nanmean(residual), 0.)
+    std = np.sqrt(np.nanmean(residual**2))
+    if np.isnan(std) or std == 0.:
+        std = 1.
 
     return K_day, K_week, K_year, K_trend, baseline_fit_result, std
 

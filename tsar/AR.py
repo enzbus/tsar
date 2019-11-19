@@ -15,24 +15,30 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
+from tsar.greedy_grid_search import greedy_grid_search
+from typing import List  # , Any
+import logging
 
 import numpy as np
 import pandas as pd
 import numba as nb
-import logging
 import scipy.sparse as sp
-import scipy.sparse.linalg as spl
-import numba as nb
+# import scipy.sparse.linalg as spl
+
+from tsar.utils import DataFrameRMSE
+# from tsar.new_linear_algebra import symm_low_rank_plus_block_diag_schur
+from tsar.linear_algebra import iterative_denoised_svd, \
+    symm_low_rank_plus_block_diag_schur, make_block_indexes
+
+from tsar.gaussian_model import \
+    _fit_low_rank_plus_block_diagonal_ar_using_eigendecomp
+
 logger = logging.getLogger(__name__)
-from typing import List, Any
 
 
 # from .utils import check_series
-from .greedy_grid_search import greedy_grid_search
-from .linear_algebra import iterative_denoised_svd, \
-    symm_low_rank_plus_block_diag_schur, make_block_indexes
 
-from .utils import DataFrameRMSE
+
 # from .base_autoregressor import BaseAutoregressor
 
 
@@ -112,7 +118,8 @@ def make_sliced_flattened_matrix(data_table: np.ndarray, lag: int):
 #         cached_lag_covariances[i], Sigma = fit_AR(
 #             train_table.iloc[:, i].values, cached_lag_covariances[i], lag)
 #         if not cached_lag_covariances[i][0]:
-#             logger.warning(f'AR model for column {train_table.columns[i]} is null!')
+#             logger.warning(
+# f'AR model for column {train_table.columns[i]} is null!')
 #             Sigma = np.eye(lag)
 #         Sigmas.append(Sigma)
 #     return Sigmas
@@ -153,7 +160,7 @@ def make_lagged_covariances(u: np.ndarray, lag: int):
     for i in range(n):
         for j in range(n):
             for t in range(lag):
-                #lag_covs[i, j, t] = lag_covariance_asymm(u[:, i], u[:, j], t)
+                # lag_covs[i, j, t] = lag_covariance_asymm(u[:, i], u[:, j], t)
                 lag_covs[j, i, t] = lag_covariance_asymm(u[:, i], u[:, j], t)
 
     return lag_covs
@@ -163,10 +170,31 @@ def build_dense_covariance_matrix(lagged_covariances):
     _, n, lag = lagged_covariances.shape
     if not n:
         return np.empty((0, 0))
-    #lag_covs = make_lag_covs(u, lag, n)
+    # lag_covs = make_lag_covs(u, lag, n)
     return np.bmat([[make_Sigma_scalar_AR_asymm(lagged_covariances[j, i, :],
                                                 lagged_covariances[i, j, :])
                      for i in range(n)] for j in range(n)])
+
+
+@nb.njit()
+def check_toeplitz(square_matrix):
+    m, _ = square_matrix.shape
+    for i in range(m-1):
+        for j in range(m-1):
+            assert square_matrix[i, j] == square_matrix[i+1, j+1]
+
+
+@nb.njit()
+def invert_build_dense_covariance_matrix(cov, lag):
+    M = cov.shape[0]//lag
+    assert np.all(cov == cov.T)
+    lagged_covariances = np.empty((M, M, lag))
+    for i in range(M):
+        for j in range(M):
+            toeplitz_block = cov[i*lag:(i+1)*lag, j*lag:(j+1)*lag]
+            check_toeplitz(toeplitz_block)
+            lagged_covariances[i, j, :] = toeplitz_block[0, :]
+    return lagged_covariances
 
 
 def build_matrices(s_times_v: np.ndarray,
@@ -202,7 +230,7 @@ def build_matrices(s_times_v: np.ndarray,
     return V, S, S_inv, D_blocks, D_matrix
 
 
-def _fit_low_rank_plus_block_diagonal_ar(
+def _fit_low_rank_plus_block_diagonal_ar_using_svd(
         train: pd.DataFrame,
         lag: int,
         rank: int,
@@ -270,7 +298,8 @@ def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
                  quadratic_regularization: float,
                  prediction_mask, real_values,
                  max_eval=3,
-                 do_anomaly_score=False):
+                 do_anomaly_score=False,
+                 do_gradients=False):
     logger.info('guessing matrix')
     # matrix_with_na = pd.DataFrame(matrix_with_na)
     full_null_mask = np.isnan(matrix_with_na)
@@ -282,9 +311,11 @@ def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
 
     ranked_masks = ranked_masks_counts.index
 
-    gradients = np.empty((matrix_with_na.shape[1],
-                          min(len(ranked_masks), max_eval)))
-    gradients[:, :] = np.nan
+    if do_gradients:
+        gradients = np.empty((matrix_with_na.shape[1],
+                              min(len(ranked_masks), max_eval)))
+        gradients[:, :] = np.nan
+
     total_num_predictions_made = 0
     for i in range(len(ranked_masks))[:max_eval]:
 
@@ -301,7 +332,7 @@ def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
         known_mask = ~np.array(ranked_masks[i])
         known_matrix = matrix_with_na[mask_indexes].T[known_mask].T
         real_result = real_values.values[mask_indexes].T[prediction_mask].T
-        result, gradient = \
+        _ = \
             symm_low_rank_plus_block_diag_schur(
                 V,
                 S,
@@ -316,8 +347,13 @@ def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
                 return_conditional_covariance=False,
                 quadratic_regularization=quadratic_regularization,
                 do_anomaly_score=do_anomaly_score,
-                return_gradient=True)
-        gradients[known_mask, i] = gradient
+                return_gradient=do_gradients)
+
+        if do_gradients:
+            result, gradient = _
+            gradients[known_mask, i] = gradient
+        else:
+            result = _
 
         if do_anomaly_score:
             return result
@@ -326,7 +362,8 @@ def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
         mat_slice = matrix_with_na[mask_indexes]
         mat_slice[:, prediction_mask] = result.T
         matrix_with_na[mask_indexes] = mat_slice
-    return gradients, total_num_predictions_made
+    return (gradients, total_num_predictions_made) if do_gradients else \
+        total_num_predictions_made
 
 
 def make_prediction_mask(
@@ -362,7 +399,8 @@ def rmse_AR(V, S, S_inv, D_blocks, D_matrix,
             past_lag, future_lag, test: pd.DataFrame,
             available_data_lags_columns: dict,
             ignore_prediction_columns: list,
-            quadratic_regularization: float):
+            quadratic_regularization: float,
+            do_gradients=False):
 
     lag = past_lag + future_lag
     test_flattened = make_sliced_flattened_matrix(test.values, lag)
@@ -372,19 +410,24 @@ def rmse_AR(V, S, S_inv, D_blocks, D_matrix,
         test.columns, past_lag, future_lag)
     real_values = pd.DataFrame(test_flattened, copy=True)
     test_flattened[:, unknown_mask] = np.nan
-    gradients, total_num_predictions_made = guess_matrix(test_flattened, V, S, S_inv, D_blocks, D_matrix,
-                                                         quadratic_regularization=quadratic_regularization,
-                                                         prediction_mask=prediction_mask, real_values=real_values)
+    _ = guess_matrix(test_flattened, V, S, S_inv, D_blocks, D_matrix,
+                     quadratic_regularization=quadratic_regularization,
+                     prediction_mask=prediction_mask, real_values=real_values,
+                     do_gradients=do_gradients)
+    if do_gradients:
+        gradients, total_num_predictions_made = _
+    else:
+        total_num_predictions_made = _
 
     test_flattened = pd.DataFrame(test_flattened)
 
     total_test_obs = test_flattened.shape[0]
 
-    #non_nan_test_obs = (test_flattened.isnull().sum(1) == 0).sum()
+    # non_nan_test_obs = (test_flattened.isnull().sum(1) == 0).sum()
 
     if total_num_predictions_made < total_test_obs:
         logger.warning(
-            "There are %d test obs., but we are only testing on %d (because of NaNs)." %
+            "There are %d test obs but we only test on %d because of NaNs." %
             (total_test_obs, total_num_predictions_made))
 
     estimate_total_loss_entries = total_num_predictions_made * \
@@ -403,7 +446,8 @@ def rmse_AR(V, S, S_inv, D_blocks, D_matrix,
 
     # print(my_RMSE)
 
-    return my_RMSE, gradients / estimate_total_loss_entries
+    return (my_RMSE, gradients / estimate_total_loss_entries) if do_gradients \
+        else my_RMSE
     # assert (not rmses.isnull().sum())
     # assert False
 
@@ -416,32 +460,6 @@ def anomaly_score(V, S, S_inv, D_blocks, D_matrix,
     guess_matrix(test_flattened, V, S, S_inv, D_blocks, D_matrix,
                  do_anomaly_score=True)
     return test_flattened
-
-    # test_flattened = pd.DataFrame(test_flattened)
-    #
-    # total_test_obs = test_flattened.shape[0]
-    #
-    # non_nan_test_obs = (test_flattened.isnull().sum(1) == 0).sum()
-    #
-    # if non_nan_test_obs < total_test_obs:
-    #     logger.warning(
-    #         "There are %d test obs., but we are only testing on %d (because of NaNs)." %
-    #         (total_test_obs, non_nan_test_obs))
-    #
-    # #assert (not test_flattened.isnull().sum().sum())
-    #
-    # rmses = DataFrameRMSE(real_values, test_flattened)
-    # print(rmses)
-    #
-    # my_RMSE = pd.DataFrame(columns=test.columns,
-    #                        index=range(1, future_lag + 1))
-    #
-    # for i, column in enumerate(test.columns):
-    #     my_RMSE[column] = rmses.iloc[lag * i + past_lag: lag * (i + 1)].values
-    #
-    # print(my_RMSE)
-
-    # return my_RMSE
 
 
 # @dataclass
@@ -467,10 +485,16 @@ def fit_low_rank_plus_block_diagonal_AR(train: pd.DataFrame,
                                         full_covariance_blocks,
                                         quadratic_regularization: float,
                                         noise_correction: bool,
-                                        variables_weight: np.array):
+                                        variables_weight: np.array,
+                                        use_svd_fit):
 
     logger.info('Fitting low-rank plus block diagonal AR')
     logger.info('Train table has shape (%d, %d)' % (train.shape))
+
+    if use_svd_fit:
+        fitter = _fit_low_rank_plus_block_diagonal_ar_using_svd
+    else:
+        fitter = _fit_low_rank_plus_block_diagonal_ar_using_eigendecomp
 
     # cached_lag_covariances = [[] for i in range(train.shape[1])]
     # cached_svd = {}
@@ -490,7 +514,7 @@ def fit_low_rank_plus_block_diagonal_AR(train: pd.DataFrame,
             lag = past_lag + future_lag
 
             s_times_v, S_lagged_covariances, block_lagged_covariances = \
-                _fit_low_rank_plus_block_diagonal_ar(
+                fitter(
                     train, lag, rank,  # cached_lag_covariances, cached_svd,
                     # cached_factor_lag_covariances,
                     full_covariance,
@@ -498,9 +522,10 @@ def fit_low_rank_plus_block_diagonal_AR(train: pd.DataFrame,
                     noise_correction,
                     variables_weight)
 
-            V, S, S_inv, D_blocks, D_matrix = build_matrices(s_times_v,
-                                                             S_lagged_covariances,
-                                                             block_lagged_covariances)
+            V, S, S_inv, D_blocks, D_matrix = build_matrices(
+                s_times_v,
+                S_lagged_covariances,
+                block_lagged_covariances)
 
             RMSE_df = rmse_AR(V, S, S_inv, D_blocks,
                               D_matrix,
@@ -514,14 +539,15 @@ def fit_low_rank_plus_block_diagonal_AR(train: pd.DataFrame,
             # np.nanmean((guessed[:, (prediction_mask & rmse_mask)] -
             #             real_values_rmse)**2)
 
-        optimal_rmse, (past_lag, rank, quadratic_regularization) = greedy_grid_search(test_RMSE,
-                                                                                      [past_lag_range,
-                                                                                       rank_range],
-                                                                                      num_steps=2)
+        optimal_rmse, (past_lag, rank, quadratic_regularization) = \
+            greedy_grid_search(test_RMSE,
+                               [past_lag_range,
+                                rank_range],
+                               num_steps=2)
 
     lag = past_lag + future_lag
     s_times_v, S_lagged_covariances, block_lagged_covariances = \
-        _fit_low_rank_plus_block_diagonal_ar(
+        fitter(
             train, lag, rank,  # cached_lag_covariances,
             # cached_svd, cached_factor_lag_covariances,
             full_covariance,
@@ -589,7 +615,8 @@ def fit_low_rank_plus_block_diagonal_AR(train: pd.DataFrame,
     #         # self.Sigma = make_Sigma_scalar_AR(self.lagged_covariances)
 
     #     # def _make_Sigma(self):
-    #     #     self.Sigma = make_Sigma_scalar_AR(np.array(self.lagged_covariances))
+    #     #     self.Sigma = make_Sigma_scalar_AR(
+    # np.array(self.lagged_covariances))
 
     #     def test_predict(self, test):
     #         check_series(test)
@@ -636,7 +663,8 @@ def fit_low_rank_plus_block_diagonal_AR(train: pd.DataFrame,
     #                                   future_lag,
     #                                   max_past_lag=100):
 
-    #     print('autotuning scalar autoregressor on %d train and %d test points' %
+    #     print(
+    # 'autotuning scalar autoregressor on %d train and %d test points' %
     #           (len(train), len(test)))
 
     #     past_lag = np.arange(1, max_past_lag + 1)
