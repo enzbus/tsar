@@ -106,8 +106,13 @@ def build_matrix_for_eigendecomposition(lagged_covariances):
 def compute_principal_directions(R, lagged_covariances):
     "Compute the R principal directions for the low-rank approximation."
     logger.debug(f'Computing {R} principal directions.')
-    u, s, v = svds(build_matrix_for_eigendecomposition(
-        lagged_covariances), k=R)
+    M = lagged_covariances.shape[0]
+    if R > 0:
+        u, s, v = svds(build_matrix_for_eigendecomposition(
+            lagged_covariances), k=R)
+    else:
+        assert R == 0
+        v = np.empty((0, M))
     return v
 
 

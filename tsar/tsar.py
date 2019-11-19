@@ -67,7 +67,7 @@ class tsar:
                  quadratic_regularization: float = 0.,
                  noise_correction: bool = False,
                  prediction_variables_weight: Optional[float] = None,
-                 use_svd_fit: bool = True,
+                 use_svd_fit: bool = False,
                  compute_gradients: bool = False):
 
         # TODO REMOVE NULL COLUMNS OR REFUSE THEM
