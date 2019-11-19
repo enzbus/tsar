@@ -73,20 +73,22 @@ class tsar:
 
         check_multidimensional_time_series(data)
 
-        self.data = data
+        #self.data = data
         self.frequency = data.index.freq
         self.future_lag = F
         self.past_lag = P
         self.rank = R
         self.train_test_split = train_test_split
-        self.baseline_params_columns = baseline_params_columns
-        if baseline_params_columns is None:
-            self.baseline_params_columns = {}
+
+        self.baseline_params_columns = {} if baseline_params_columns is None \
+            else baseline_params_columns
+
         self.return_performance_statistics = return_performance_statistics
         self.baseline_results_columns = {}
-        self.available_data_lags_columns = available_data_lags_columns
-        if available_data_lags_columns is None:
-            self.available_data_lags_columns = {}
+
+        self.available_data_lags_columns = {} if available_data_lags_columns \
+            is None else available_data_lags_columns
+
         self.ignore_prediction_columns = [] if ignore_prediction_columns \
             is None else ignore_prediction_columns
 
@@ -226,9 +228,11 @@ class tsar:
 
     @property
     def large_matrix_multiindex(self):
-        return pd.MultiIndex.from_arrays((np.repeat(self.columns, self.lag),
-                                          np.concatenate([np.arange(-self.past_lag + 1,
-                                                                    self.future_lag + 1)] * len(self.columns))))
+        return pd.MultiIndex.from_arrays(
+            (np.repeat(self.columns, self.lag),
+             np.concatenate(
+             [np.arange(-self.past_lag + 1,
+                        self.future_lag + 1)] * len(self.columns))))
 
     @property
     def Sigma_df(self):
@@ -238,7 +242,8 @@ class tsar:
 
     @property
     def single_variable_lag_covariances(self):
-        return pd.DataFrame([el.flatten() for el in self.block_lagged_covariances],
+        return pd.DataFrame([el.flatten()
+                             for el in self.block_lagged_covariances],
                             index=self.columns)
 
     # @property
@@ -463,7 +468,8 @@ class tsar:
                            index=data.index[self.past_lag:len(data)
                                             - self.future_lag + 1])
 
-        return {(fut_lag + 1): self._invert_residual(res.loc[:, fut_lag + 1]) for fut_lag in range(self.future_lag)}
+        return {(fut_lag + 1): self._invert_residual(res.loc[:, fut_lag + 1])
+                for fut_lag in range(self.future_lag)}
 
     def predict(self,
                 data: pd.DataFrame,
@@ -579,6 +585,7 @@ class tsar:
             self.plot_RMSE(col)
 
     def save_model(self):
+        # TODO test model is pickable!
         model_dict = {'frequency': self.frequency,
                       'past_lag': self.past_lag,
                       'future_lag': self.future_lag,

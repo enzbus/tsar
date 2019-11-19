@@ -21,3 +21,10 @@ Per lavorare al codice,
 source ./ambiente/bin/activate
 Atom .
 ```
+
+Per caricare su pip, dopo aver cambiato la versione in setup.py
+
+```
+source ./ambiente/bin/activate
+bash pip_upload.sh
+```
