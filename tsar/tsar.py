@@ -23,7 +23,8 @@ from .utils import DataFrameRMSE, check_multidimensional_time_series
 from .AR import fit_low_rank_plus_block_diagonal_AR, \
     rmse_AR, anomaly_score, build_matrices, \
     make_sliced_flattened_matrix, make_prediction_mask, guess_matrix
-from .baseline import fit_many_baselines, data_to_residual, residual_to_data
+from .baseline import fit_many_baselines, data_to_normalized_residual, \
+    normalized_residual_to_data
 import pandas as pd
 import numpy as np
 import pickle
@@ -136,7 +137,6 @@ class tsar:
     def _prepare_baseline_params_and_results(self):
 
         for col in self.columns:
-            # TODO can be eliminated
             self.baseline_results_columns[col] = {}
 
             if col not in self.baseline_params_columns:
@@ -400,17 +400,21 @@ class tsar:
         return baseline_RMSE, AR_RMSE
 
     def _residual(self, data: pd.DataFrame) -> pd.DataFrame:
+        # TODO merge with next function
         return data.apply(self._column_residual)
+
+    def normalized_residual(self, data: pd.DataFrame) -> pd.DataFrame:
+        return self._residual(data)
 
     def _column_residual(self, column: pd.Series) -> pd.Series:
         return (non_par_data_to_residual if
                 (('non_par_baseline' in
                   self.baseline_params_columns[column.name]) and
                  self.baseline_params_columns[column.name]['non_par_baseline'])
-                else data_to_residual)(
+                else data_to_normalized_residual)(
             column,
             **self.baseline_params_columns[column.name],
-            baseline_fit_result=self.baseline_results_columns[column.name])
+            **self.baseline_results_columns[column.name])
 
     def _invert_residual(self, data: pd.DataFrame) -> pd.DataFrame:
         return self._clip_prediction(
@@ -421,9 +425,9 @@ class tsar:
                 (('non_par_baseline' in
                   self.baseline_params_columns[column.name]) and
                  self.baseline_params_columns[column.name]['non_par_baseline'])
-                else residual_to_data)(
+                else normalized_residual_to_data)(
             column,
-            baseline_fit_result=self.baseline_results_columns[column.name],
+            **self.baseline_results_columns[column.name],
             **self.baseline_params_columns[column.name])
 
     def predict_many(self,

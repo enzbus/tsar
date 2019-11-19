@@ -21,6 +21,8 @@ from tsar import tsar
 import pandas as pd
 import numpy as np
 
+from tsar.generate_data import generate_data
+
 
 class TestTsar(TestCase):
 
@@ -28,22 +30,29 @@ class TestTsar(TestCase):
     # train = data[data.index.year.isin([2010, 2011])]
     # test = data[data.index.year == 2012]
 
-    def generate_data(self, M, T=100, freq='1H'):
-        index = pd.date_range(start='2019-01-01', freq=freq, periods=T)
-        data = np.random.randn(T, M)
-        dataframe = pd.DataFrame(index=index, data=data)
+    def test_daily(self):
 
-        for column in dataframe.columns:
-            dataframe[column] += np.random.randn(24)[index.hour]
-            dataframe[column] += np.random.randn(7)[index.weekday]
-            dataframe[column] += np.random.randn(12)[index.month]
-
-        return dataframe
+        data = generate_data(M=2, T=10000, freq='1H')
+        print(data)
+        model = tsar(data, P=4*6, F=4*6, R=1, quadratic_regularization=1.)
+        print(model.baseline_params_columns)
+        print(model.baseline_results_columns)
+        self.assertEqual(model.baseline_params_columns[0]['K_day'], 0)
+        self.assertEqual(model.baseline_params_columns[1]['K_day'], 0)
 
     def test_simple(self):
 
-        data = self.generate_data(M=2, T=1000, freq='1H')
-        _ = tsar(data, P=4*6, F=4*6, R=1, quadratic_regularization=1.)
+        data = generate_data(M=2, T=10000, freq='1H')
+        model = tsar(data, P=4*6, F=4*6, R=1, quadratic_regularization=1.)
+
+        norm_res = model.normalized_residual(data)
+
+        self.assertTrue(np.all(np.isclose(norm_res.mean(), 0.)))
+        self.assertTrue(np.all(np.isclose(np.sqrt(np.mean(norm_res**2)), 1.)))
+
+        pred = model.predict(data, prediction_time=data.index[100])
+        print(pred)
+        #assert False
 
     # def test_scalar(self):
     #     _ = tsar(self.data, P=4*6, F=4*6, R=1, quadratic_regularization=1.)

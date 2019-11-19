@@ -17,7 +17,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from unittest import TestCase
 from tsar.baseline import featurize_index_for_baseline, make_periods, \
-    fit_scalar_baseline, residual_to_data, fit_many_baselines,\
+    fit_scalar_baseline, normalized_residual_to_data, fit_many_baselines,\
     compute_baseline
 
 import pandas as pd
@@ -51,7 +51,7 @@ class TestBaseline(TestCase):
         print(self.train.head())
 
         daily_harmonics, weekly_harmonics, annual_harmonics, \
-            trend, baseline_fit_results = \
+            trend, baseline_fit_results, std = \
             fit_scalar_baseline(self.train,
                                 K_day=None,
                                 K_week=None,
@@ -60,8 +60,9 @@ class TestBaseline(TestCase):
                                 train_test_ratio=2/3,
                                 gamma=1E-8, W=2)
 
-        train_baseline = residual_to_data(
+        train_baseline = normalized_residual_to_data(
             pd.Series(0., index=self.train.index),
+            std,
             daily_harmonics,
             weekly_harmonics,
             annual_harmonics,
@@ -76,12 +77,14 @@ class TestBaseline(TestCase):
         print('train rmse', train_rmse)
         self.assertTrue(train_rmse < 6)
 
-        test_baseline = residual_to_data(pd.Series(0, index=self.test.index),
-                                         daily_harmonics,
-                                         weekly_harmonics,
-                                         annual_harmonics,
-                                         trend,
-                                         baseline_fit_results)
+        test_baseline = normalized_residual_to_data(
+            pd.Series(0, index=self.test.index),
+            std,
+            daily_harmonics,
+            weekly_harmonics,
+            annual_harmonics,
+            trend,
+            baseline_fit_results)
 
         test_mean_error = (self.test - test_baseline).mean()
         print('test mean', test_mean_error)
@@ -113,12 +116,12 @@ class TestBaseline(TestCase):
         bas1 = compute_baseline(self.test.index,
                                 **baseline_params_dict['col1'],
                                 baseline_fit_result=all_baseline_fit_results[
-                                    'col1'])
+                                    'col1']['baseline_fit_result'])
 
         bas2 = compute_baseline(self.test.index,
                                 **baseline_params_dict['col2'],
                                 baseline_fit_result=all_baseline_fit_results[
-                                    'col2'])
+                                    'col2']['baseline_fit_result'])
 
         print(np.mean(bas1 - bas2) / bas1.mean())
         self.assertTrue(np.mean(bas1 - bas2) / bas1.mean() < 0.05)
@@ -138,5 +141,7 @@ class TestBaseline(TestCase):
         print(baseline_params_dict_par)
 
         self.assertEqual(baseline_params_dict_par, baseline_params_dict)
-        self.assertTrue(np.all(all_baseline_fit_results_par['col1'] ==
-                               all_baseline_fit_results['col1']))
+        self.assertTrue(np.all(all_baseline_fit_results_par['col1'][
+            'baseline_fit_result'] ==
+            all_baseline_fit_results['col1'][
+            'baseline_fit_result']))

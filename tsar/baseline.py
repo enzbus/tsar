@@ -106,32 +106,37 @@ def compute_baseline(index,
     return predict_with_baseline(X, baseline_fit_result)
 
 
-def data_to_residual(data: pd.Series,
-                     K_day: int,
-                     K_week: int,
-                     K_year: int,
-                     K_trend: bool,
-                     baseline_fit_result: np.ndarray, **kwargs) -> pd.Series:
+def data_to_normalized_residual(
+        data: pd.Series,
+        std: float,
+        K_day: int,
+        K_week: int,
+        K_year: int,
+        K_trend: bool,
+        baseline_fit_result: np.ndarray, **kwargs) -> pd.Series:
     return (data - compute_baseline(data.index,
                                     K_day,
                                     K_week,
                                     K_year,
                                     K_trend,
-                                    baseline_fit_result))
+                                    baseline_fit_result)) / std
 
 
-def residual_to_data(residual: pd.Series,
-                     K_day: int,
-                     K_week: int,
-                     K_year: int,
-                     K_trend: bool,
-                     baseline_fit_result: np.ndarray, **kwargs) -> pd.Series:
-    return residual + compute_baseline(residual.index,
-                                       K_day,
-                                       K_week,
-                                       K_year,
-                                       K_trend,
-                                       baseline_fit_result)
+def normalized_residual_to_data(
+        normalized_residual: pd.Series,
+        std: float,
+        K_day: int,
+        K_week: int,
+        K_year: int,
+        K_trend: bool,
+        baseline_fit_result: np.ndarray, **kwargs) -> pd.Series:
+    return normalized_residual * std + compute_baseline(
+        normalized_residual.index,
+        K_day,
+        K_week,
+        K_year,
+        K_trend,
+        baseline_fit_result)
 
 
 def _fit_baseline(data, K_day, K_week, K_year, K_trend, gamma=1E-8):
@@ -222,7 +227,19 @@ def fit_scalar_baseline(data,
                                         K_year=K_year,
                                         K_trend=K_trend)
 
-    return K_day, K_week, K_year, K_trend, baseline_fit_result
+    residual = data_to_normalized_residual(
+        data,
+        std=1.,
+        K_day=K_day,
+        K_week=K_week,
+        K_year=K_year,
+        K_trend=K_trend,
+        baseline_fit_result=baseline_fit_result)
+
+    assert np.isclose(np.mean(residual), 0.)
+    std = np.sqrt(np.mean(residual**2))
+
+    return K_day, K_week, K_year, K_trend, baseline_fit_result, std
 
 
 def fit_scalar_wrapper(args):
@@ -230,7 +247,7 @@ def fit_scalar_wrapper(args):
     data_series, params, train_test_ratio, gamma, W = args
 
     params = {}
-    K_day, K_week, K_year, K_trend, baseline_fit_result =\
+    K_day, K_week, K_year, K_trend, baseline_fit_result, std =\
         fit_scalar_baseline(
             data_series,
             **params,
@@ -240,7 +257,7 @@ def fit_scalar_wrapper(args):
     params['K_week'] = K_week
     params['K_year'] = K_year
     params['K_trend'] = K_trend
-    return params, baseline_fit_result
+    return params, {'baseline_fit_result': baseline_fit_result, 'std': std}
 
 
 def fit_many_baselines(data,
