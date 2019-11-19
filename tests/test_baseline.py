@@ -16,12 +16,14 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 from unittest import TestCase
-from tsar.baseline import featurize_index_for_baseline, make_periods, \
-    fit_scalar_baseline, normalized_residual_to_data, fit_many_baselines,\
-    compute_baseline
+import multiprocessing
 
 import pandas as pd
 import numpy as np
+
+from tsar.baseline import featurize_index_for_baseline, make_periods, \
+    fit_scalar_baseline, normalized_residual_to_data, fit_many_baselines,\
+    compute_baseline
 
 
 class TestBaseline(TestCase):
@@ -136,7 +138,8 @@ class TestBaseline(TestCase):
         par_time = (time.time()-s)
         print('parallel took %.2f seconds' % par_time)
 
-        self.assertTrue(par_time < non_par_time)
+        if multiprocessing.cpu_count() >= 4:
+            self.assertTrue(par_time < non_par_time)
 
         print(baseline_params_dict_par)
 
