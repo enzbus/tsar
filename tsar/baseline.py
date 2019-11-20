@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 MAX_DAILY_HARMONICS = 24*4
 
+POOL_MAPPER = Pool().map
+
 
 @nb.jit(nopython=True)
 def featurize_index_for_baseline(seconds: np.ndarray,
@@ -275,9 +277,15 @@ def fit_many_baselines(data,
                   train_test_ratio, gamma, W)
                  for col in data.columns]
 
-    results = list(
-        (map if not parallel else Pool().map)
-        (fit_scalar_wrapper, arguments))
+    if parallel:
+        with Pool() as p:
+            results = list(p.map(fit_scalar_wrapper, arguments))
+    else:
+        results = list(map(fit_scalar_wrapper, arguments))
+
+    # results = list(
+    #     (map if not parallel else Pool().map)
+    #     (fit_scalar_wrapper, arguments))
 
     for i, col in enumerate(data.columns):
         baseline_params_dict[col], all_baseline_fit_results[col] = \

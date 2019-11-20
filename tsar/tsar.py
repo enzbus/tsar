@@ -68,7 +68,8 @@ class tsar:
                  noise_correction: bool = False,
                  prediction_variables_weight: Optional[float] = None,
                  use_svd_fit: bool = False,
-                 compute_gradients: bool = False):
+                 compute_gradients: bool = False,
+                 parallel_fit=True):
 
         # TODO REMOVE NULL COLUMNS OR REFUSE THEM
 
@@ -122,6 +123,8 @@ class tsar:
         self.use_svd_fit = use_svd_fit
         self.compute_gradients = compute_gradients
 
+        self.parallel_fit = parallel_fit
+
         # self.columns = self.data.columns
 
         # FIT
@@ -132,15 +135,18 @@ class tsar:
         self._prepare_baseline_params_and_results()
         self._fit_baselines(reordered_data)
 
-        # this block will be rewritten
-        self._fit_low_rank_plus_block_diagonal_AR(
-            split_train(reordered_data, self.train_test_split),
-            split_test(reordered_data, self.train_test_split))
-        self.compute_gradients = False
-        self.AR_RMSE = self.test_AR(
-            split_test(reordered_data, self.train_test_split))
-        self.compute_gradients = compute_gradients
-        self._fit_low_rank_plus_block_diagonal_AR(reordered_data, None)
+        # gaussian
+        self._fit_low_rank_plus_block_diagonal_AR(reordered_data)
+
+        # # this block will be rewritten
+        # self._fit_low_rank_plus_block_diagonal_AR(
+        #     split_train(reordered_data, self.train_test_split),
+        #     split_test(reordered_data, self.train_test_split))
+        # self.compute_gradients = False
+        # self.AR_RMSE = self.test_AR(
+        #     split_test(reordered_data, self.train_test_split))
+        # self.compute_gradients = compute_gradients
+        # self._fit_low_rank_plus_block_diagonal_AR(reordered_data, None)
 
         # self.
         # self.fit_train_test()
@@ -281,7 +287,7 @@ class tsar:
                 baseline_params_dict=self.baseline_params_columns,
                 train_test_ratio=self.train_test_split,
                 gamma=1E-8, W=2,
-                parallel=True)
+                parallel=self.parallel_fit)
 
     # def _fit_baselines(self,
     #                    data: pd.DataFrame,
@@ -348,8 +354,9 @@ class tsar:
                 self.block_lagged_covariances)
 
     def _fit_low_rank_plus_block_diagonal_AR(
-            self, train: pd.DataFrame,
-            test: Optional[pd.DataFrame] = None):
+            self, data: pd.DataFrame):
+        # train: pd.DataFrame,
+        # test: Optional[pd.DataFrame] = None):
 
         logger.debug('Fitting low-rank plus block diagonal.')
 
@@ -359,20 +366,37 @@ class tsar:
         self.past_lag, self.rank, self.quadratic_regularization, \
             self.s_times_v, self.S_lagged_covariances, \
             self.block_lagged_covariances = \
-            fit_low_rank_plus_block_diagonal_AR(self._residual(train),
-                                                self._residual(
-                test) if test is not None else None,
-                self.future_lag,
-                self.past_lag,
-                self.rank,
-                self.available_data_lags_columns,
-                self.ignore_prediction_columns,
-                self.full_covariance,
-                self.full_covariance_blocks,
-                self.quadratic_regularization,
-                self.noise_correction,
-                self.variables_weight,
-                use_svd_fit=self.use_svd_fit)
+            fit_low_rank_plus_block_diagonal_AR(
+                self._residual(data),
+                rank=self.rank,
+                quadratic_regularization=self.quadratic_regularization,
+                future_lag=self.future_lag,
+                past_lag=self.past_lag,
+                available_data_lags_columns=self.available_data_lags_columns,
+                ignore_prediction_columns=self.ignore_prediction_columns,
+                full_covariance=self.full_covariance,
+                full_covariance_blocks=self.full_covariance_blocks,
+                noise_correction=self.noise_correction,
+                variables_weight=self.variables_weight,
+                use_svd_fit=self.use_svd_fit,
+                train_test_ratio=self.train_test_split,
+                alpha=np.cbrt(10),
+                W=2)
+
+        # (self._residual(train),
+        #                                     self._residual(
+        #     test) if test is not None else None,
+        #     self.future_lag,
+        #     self.past_lag,
+        #     self.rank,
+        #     self.available_data_lags_columns,
+        #     self.ignore_prediction_columns,
+        #     self.full_covariance,
+        #     self.full_covariance_blocks,
+        #     self.quadratic_regularization,
+        #     self.noise_correction,
+        #     self.variables_weight,
+        #     use_svd_fit=self.use_svd_fit)
 
         self._build_matrices()
 
