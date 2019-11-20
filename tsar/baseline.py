@@ -24,6 +24,7 @@ import pandas as pd
 import numba as nb
 
 from .greedy_grid_search import greedy_grid_search
+from tsar.non_par_baseline import fit_baseline as non_par_fit_baseline
 
 logger = logging.getLogger(__name__)
 
@@ -161,7 +162,7 @@ def fit_scalar_baseline(data,
                         K_year=None,
                         K_trend=None,
                         train_test_ratio=2/3,
-                        gamma=1E-8, W=2):
+                        gamma=1E-8, W=2, **kwargs):
 
     assert type(data) is pd.Series
 
@@ -248,20 +249,51 @@ def fit_scalar_baseline(data,
 
 def fit_scalar_wrapper(args):
 
+    # TODO HERE ADD NON_PAR_BASELINE
+
+    # if not self.baseline_params_columns[col]['non_par_baseline']:
+    #
+    #  self.baseline_results_columns[col]['std'], \
+    #      self.baseline_params_columns[col]['daily_harmonics'], \
+    #      self.baseline_params_columns[col]['weekly_harmonics'], \
+    #      self.baseline_params_columns[col]['annual_harmonics'], \
+    #      self.baseline_params_columns[col]['trend'],\
+    # self.baseline_results_columns[col]['baseline_fit_result'], \
+    #      optimal_rmse = fit_baseline(
+    #      train, test,
+    #      **self.baseline_params_columns[col])
+    # else:
+    #
+    #  self.baseline_results_columns[col]['std'], \
+    #      self.baseline_params_columns[col]['lambdas'],\
+    #      self.baseline_results_columns[col]['theta'], \
+    #      optimal_rmse = non_par_fit_baseline(
+    #      train, test,
+    #      **self.baseline_params_columns[col])
+
     data_series, params, train_test_ratio, gamma, W = args
 
-    params = {}
-    K_day, K_week, K_year, K_trend, baseline_fit_result, std =\
-        fit_scalar_baseline(
+    # params = {}
+    if 'non_par_baseline' not in params or not params['non_par_baseline']:
+        K_day, K_week, K_year, K_trend, baseline_fit_result, std =\
+            fit_scalar_baseline(
+                data_series,
+                **params,
+                train_test_ratio=train_test_ratio,
+                gamma=gamma, W=W)
+        params['K_day'] = K_day
+        params['K_week'] = K_week
+        params['K_year'] = K_year
+        params['K_trend'] = K_trend
+        results = {'baseline_fit_result': baseline_fit_result, 'std': std}
+    else:
+        std, lambdas, theta, _ = non_par_fit_baseline(
             data_series,
-            **params,
-            train_test_ratio=train_test_ratio,
-            gamma=gamma, W=W)
-    params['K_day'] = K_day
-    params['K_week'] = K_week
-    params['K_year'] = K_year
-    params['K_trend'] = K_trend
-    return params, {'baseline_fit_result': baseline_fit_result, 'std': std}
+            **params, train_test_ratio=train_test_ratio, W=W)
+        params['lambdas'] = lambdas
+        results = {'theta': theta, 'std': std}
+
+    return params, results
 
 
 def fit_many_baselines(data,

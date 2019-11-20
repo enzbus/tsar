@@ -22,6 +22,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def sanitize_baseline_params(params, columns):
+    for col in columns:
+        if col not in params:
+            params[col] = {}
+        # non parametric baseline
+        if 'non_par_baseline' not in params[col]:
+            params[col]['non_par_baseline'] = False
+
+        if params[col]['non_par_baseline'] and not \
+           ('used_features' in params[col]):
+            params[col]['used_features'] = \
+                ['hour_of_day', 'day_of_week', 'month_of_year']
+        if params[col]['non_par_baseline'] and not \
+           ('lambdas' in params[col]):
+            params[col]['lambdas'] = \
+                [None] * len(params[col]['used_features'])
+    return params
+
+
 def check_multidimensional_time_series(data, frequency=None, columns=None):
     if not isinstance(data, pd.DataFrame):
         raise TypeError(

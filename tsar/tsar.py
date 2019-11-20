@@ -20,7 +20,8 @@ from .non_par_baseline import fit_baseline as non_par_fit_baseline, \
     residual_to_data as non_par_residual_to_data
 from tsar.linear_algebra import symm_low_rank_plus_block_diag_schur, \
     make_block_indexes
-from .utils import DataFrameRMSE, check_multidimensional_time_series
+from .utils import DataFrameRMSE, check_multidimensional_time_series,\
+    sanitize_baseline_params
 from .AR import fit_low_rank_plus_block_diagonal_AR, \
     rmse_AR, anomaly_score, build_matrices, \
     make_sliced_flattened_matrix, make_prediction_mask, guess_matrix
@@ -157,25 +158,29 @@ class tsar:
 
     def _prepare_baseline_params_and_results(self):
 
+        self.baseline_params_columns = \
+            sanitize_baseline_params(self.baseline_params_columns,
+                                     self.columns)
+
         for col in self.columns:
             self.baseline_results_columns[col] = {}
 
-            if col not in self.baseline_params_columns:
-                self.baseline_params_columns[col] = {}
-
-            # non parametric baseline
-            if 'non_par_baseline' not in self.baseline_params_columns[col]:
-                self.baseline_params_columns[col]['non_par_baseline'] = False
-
-            if self.baseline_params_columns[col]['non_par_baseline'] and not \
-               ('used_features' in self.baseline_params_columns[col]):
-                self.baseline_params_columns[col]['used_features'] = \
-                    ['hour_of_day', 'day_of_week', 'month_of_year']
-            if self.baseline_params_columns[col]['non_par_baseline'] and not \
-               ('lambdas' in self.baseline_params_columns[col]):
-                self.baseline_params_columns[col]['lambdas'] = \
-                    [None] * len(self.baseline_params_columns[col]
-                                 ['used_features'])
+            # if col not in self.baseline_params_columns:
+            #     self.baseline_params_columns[col] = {}
+            #
+            # # non parametric baseline
+            # if 'non_par_baseline' not in self.baseline_params_columns[col]:
+            #     self.baseline_params_columns[col]['non_par_baseline'] = False
+            #
+            # if self.baseline_params_columns[col]['non_par_baseline'] and not\
+            #    ('used_features' in self.baseline_params_columns[col]):
+            #     self.baseline_params_columns[col]['used_features'] = \
+            #         ['hour_of_day', 'day_of_week', 'month_of_year']
+            # if self.baseline_params_columns[col]['non_par_baseline'] and not\
+            #    ('lambdas' in self.baseline_params_columns[col]):
+            #     self.baseline_params_columns[col]['lambdas'] = \
+            #         [None] * len(self.baseline_params_columns[col]
+            #                      ['used_features'])
             if col not in self.available_data_lags_columns:
                 self.available_data_lags_columns[col] = 0
 

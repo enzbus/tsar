@@ -19,25 +19,27 @@ import pandas as pd
 import numpy as np
 
 
-# def smooth(vector):
-#     return (vector +
-#             np.concatenate([vector[1:], vector[-1:]]) +
-#             np.concatenate([vector[:1], vector[:-1]])) / 3
-#
-# def generate_baseline(index, daily=True,
-#  weekly=True, annual=True, trend=True):
-#
-#     result = pd.Series(data=np.random.randn(), index=index)
-#     if daily:
-#         result += smooth(np.random.randn(24))[index.hour]
-#     if weekly:
-#         result += smooth(np.random.randn(7))[index.weekday]
-#     if annual:
-#         result += smooth(np.random.randn(12))[index.month-1]
-#     if trend:
-#         result += np.arange(len(index)) * np.random.randn()
-#
-#     return result
+def smooth(vector):
+    return (vector +
+            np.concatenate([vector[1:], vector[-1:]]) +
+            np.concatenate([vector[:1], vector[:-1]])) / 3
+
+
+def generate_harder_baseline(index, daily=True,
+                             weekly=True, annual=True, trend=True):
+
+    result = pd.Series(data=np.random.randn(), index=index)
+    if daily:
+        result += smooth(np.random.randn(24))[index.hour]
+    if weekly:
+        result += smooth(np.random.randn(7))[index.weekday]
+    if annual:
+        result += smooth(np.random.randn(12))[index.month-1]
+    if trend:
+        result += np.arange(len(index)) * np.random.randn()
+
+    return result
+
 
 def make_harmonic_function(length):
     result = np.zeros(length)
@@ -49,7 +51,8 @@ def make_harmonic_function(length):
     return result
 
 
-def generate_baseline(index, daily, weekly, annual, trend):
+def generate_baseline(index, daily=True,
+                      weekly=True, annual=True, trend=True):
 
     result = pd.Series(data=np.random.randn(), index=index)
     if daily:

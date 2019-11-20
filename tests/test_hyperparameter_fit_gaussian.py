@@ -101,22 +101,33 @@ class TestHyperParFitGaussian(TestCase):
     #                    noise_correction=False,
     #                    quadratic_regularization=quad_reg_uncorrected)
     #
-        zero_err = 0.
-        mod_1_err = 0.
-        mod_2_err = 0.
-        mod_3_err = 0.
-        for t in [100, 150, 200, 250, 300]:
-            baseline_pred = model_1.predict(test.iloc[:1],
-                                            prediction_time=test.index[t])
-            mypred_1, real = evaluate_model(model_1, test, t=t)
-            mypred_2, real = evaluate_model(model_2, test, t=t)
-            mypred_3, real = evaluate_model(model_3, test, t=t)
-            # print(mypred, mypred-real)
+        baseline_err, AR_RMSE_1 = model_1.test_model(test)
+        _, AR_RMSE_2 = model_2.test_model(test)
+        _, AR_RMSE_3 = model_3.test_model(test)
 
-            zero_err += MSE(baseline_pred-real)
-            mod_1_err += MSE(mypred_1 - real)
-            mod_2_err += MSE(mypred_2 - real)
-            mod_3_err += MSE(mypred_3 - real)
+        # zero_err = 0.
+        # mod_1_err = 0.
+        # mod_2_err = 0.
+        # mod_3_err = 0.
+        # for t in [100, 150, 200, 250, 300]:
+        #     baseline_pred = model_1.predict(test.iloc[:1],
+        #                                     prediction_time=test.index[t])
+        #     mypred_1, real = evaluate_model(model_1, test, t=t)
+        #     mypred_2, real = evaluate_model(model_2, test, t=t)
+        #     mypred_3, real = evaluate_model(model_3, test, t=t)
+        #     # print(mypred, mypred-real)
+        #
+        #     zero_err += MSE(baseline_pred-real)
+        #     mod_1_err += MSE(mypred_1 - real)
+        #     mod_2_err += MSE(mypred_2 - real)
+        #     mod_3_err += MSE(mypred_3 - real)
+
+        zero_err = (baseline_err**2).sum()
+        mod_1_err = (AR_RMSE_1**2).mean()
+        assert len(mod_1_err) == len(baseline_err)
+        mod_1_err = mod_1_err.sum()
+        mod_2_err = (AR_RMSE_2**2).mean().sum()
+        mod_3_err = (AR_RMSE_3**2).mean().sum()
 
         self.check_smaller(mod_1_err, zero_err)
         self.check_smaller(mod_2_err, mod_3_err)
@@ -145,22 +156,33 @@ class TestHyperParFitGaussian(TestCase):
                        noise_correction=False)
         print(f'R = {model_3.rank}, lambda={model_3.quadratic_regularization}')
 
-        zero_err = 0.
-        mod_1_err = 0.
-        mod_2_err = 0.
-        mod_3_err = 0.
-        for t in [100, 150, 200, 250, 300]:
-            baseline_pred = model_1.predict(test.iloc[:1],
-                                            prediction_time=test.index[t])
-            mypred_1, real = evaluate_model(model_1, test, t=t)
-            mypred_2, real = evaluate_model(model_2, test, t=t)
-            mypred_3, real = evaluate_model(model_3, test, t=t)
-            # print(mypred, mypred-real)
+        baseline_err, AR_RMSE_1 = model_1.test_model(test)
+        _, AR_RMSE_2 = model_2.test_model(test)
+        _, AR_RMSE_3 = model_3.test_model(test)
 
-            zero_err += MSE(baseline_pred-real)
-            mod_1_err += MSE(mypred_1 - real)
-            mod_2_err += MSE(mypred_2 - real)
-            mod_3_err += MSE(mypred_3 - real)
+        # zero_err = 0.
+        # mod_1_err = 0.
+        # mod_2_err = 0.
+        # mod_3_err = 0.
+        # for t in [100, 150, 200, 250, 300]:
+        #     baseline_pred = model_1.predict(test.iloc[:1],
+        #                                     prediction_time=test.index[t])
+        #     mypred_1, real = evaluate_model(model_1, test, t=t)
+        #     mypred_2, real = evaluate_model(model_2, test, t=t)
+        #     mypred_3, real = evaluate_model(model_3, test, t=t)
+        #     # print(mypred, mypred-real)
+        #
+        #     zero_err += MSE(baseline_pred-real)
+        #     mod_1_err += MSE(mypred_1 - real)
+        #     mod_2_err += MSE(mypred_2 - real)
+        #     mod_3_err += MSE(mypred_3 - real)
+
+        zero_err = (baseline_err**2).sum()
+        mod_1_err = (AR_RMSE_1**2).mean()
+        assert len(mod_1_err) == len(baseline_err)
+        mod_1_err = mod_1_err.sum()
+        mod_2_err = (AR_RMSE_2**2).mean().sum()
+        mod_3_err = (AR_RMSE_3**2).mean().sum()
 
         self.check_smaller(mod_1_err, zero_err)
         self.check_smaller(mod_2_err, mod_3_err)
@@ -195,22 +217,33 @@ class TestHyperParFitGaussian(TestCase):
                        noise_correction=False)
         print(f'R = {model_3.rank}, lambda={model_3.quadratic_regularization}')
 
-        zero_err = 0.
-        mod_1_err = 0.
-        mod_2_err = 0.
-        mod_3_err = 0.
-        for t in [100, 150, 200, 250, 300]:
-            baseline_pred = model_1.predict(test.iloc[:1],
-                                            prediction_time=test.index[t])
-            mypred_1, real = evaluate_model(model_1, test, t=t)
-            mypred_2, real = evaluate_model(model_2, test, t=t)
-            mypred_3, real = evaluate_model(model_3, test, t=t)
-            # print(mypred, mypred-real)
+        baseline_err, AR_RMSE_1 = model_1.test_model(test)
+        _, AR_RMSE_2 = model_2.test_model(test)
+        _, AR_RMSE_3 = model_3.test_model(test)
 
-            zero_err += MSE(baseline_pred-real)
-            mod_1_err += MSE(mypred_1 - real)
-            mod_2_err += MSE(mypred_2 - real)
-            mod_3_err += MSE(mypred_3 - real)
+        # zero_err = 0.
+        # mod_1_err = 0.
+        # mod_2_err = 0.
+        # mod_3_err = 0.
+        # for t in [100, 150, 200, 250, 300]:
+        #     baseline_pred = model_1.predict(test.iloc[:1],
+        #                                     prediction_time=test.index[t])
+        #     mypred_1, real = evaluate_model(model_1, test, t=t)
+        #     mypred_2, real = evaluate_model(model_2, test, t=t)
+        #     mypred_3, real = evaluate_model(model_3, test, t=t)
+        #     # print(mypred, mypred-real)
+        #
+        #     zero_err += MSE(baseline_pred-real)
+        #     mod_1_err += MSE(mypred_1 - real)
+        #     mod_2_err += MSE(mypred_2 - real)
+        #     mod_3_err += MSE(mypred_3 - real)
+
+        zero_err = (baseline_err**2).sum()
+        mod_1_err = (AR_RMSE_1**2).mean()
+        assert len(mod_1_err) == len(baseline_err)
+        mod_1_err = mod_1_err.sum()
+        mod_2_err = (AR_RMSE_2**2).mean().sum()
+        mod_3_err = (AR_RMSE_3**2).mean().sum()
 
         self.check_smaller(mod_1_err, zero_err)
         self.check_smaller(mod_2_err, mod_3_err)
@@ -256,22 +289,33 @@ class TestHyperParFitGaussian(TestCase):
     #                    noise_correction=False,
     #                    quadratic_regularization=quad_reg_uncorrected)
     #
-        zero_err = 0.
-        mod_1_err = 0.
-        mod_2_err = 0.
-        mod_3_err = 0.
-        for t in [100, 150, 200, 250, 300, 350, 400, 450, 500]:
-            baseline_pred = model_1.predict(test.iloc[:1],
-                                            prediction_time=test.index[t])
-            mypred_1, real = evaluate_model(model_1, test, t=t)
-            mypred_2, real = evaluate_model(model_2, test, t=t)
-            mypred_3, real = evaluate_model(model_3, test, t=t)
-            # print(mypred, mypred-real)
+        baseline_err, AR_RMSE_1 = model_1.test_model(test)
+        _, AR_RMSE_2 = model_2.test_model(test)
+        _, AR_RMSE_3 = model_3.test_model(test)
 
-            zero_err += MSE(baseline_pred-real)
-            mod_1_err += MSE(mypred_1 - real)
-            mod_2_err += MSE(mypred_2 - real)
-            mod_3_err += MSE(mypred_3 - real)
+        # zero_err = 0.
+        # mod_1_err = 0.
+        # mod_2_err = 0.
+        # mod_3_err = 0.
+        # for t in [100, 150, 200, 250, 300]:
+        #     baseline_pred = model_1.predict(test.iloc[:1],
+        #                                     prediction_time=test.index[t])
+        #     mypred_1, real = evaluate_model(model_1, test, t=t)
+        #     mypred_2, real = evaluate_model(model_2, test, t=t)
+        #     mypred_3, real = evaluate_model(model_3, test, t=t)
+        #     # print(mypred, mypred-real)
+        #
+        #     zero_err += MSE(baseline_pred-real)
+        #     mod_1_err += MSE(mypred_1 - real)
+        #     mod_2_err += MSE(mypred_2 - real)
+        #     mod_3_err += MSE(mypred_3 - real)
+
+        zero_err = (baseline_err**2).sum()
+        mod_1_err = (AR_RMSE_1**2).mean()
+        assert len(mod_1_err) == len(baseline_err)
+        mod_1_err = mod_1_err.sum()
+        mod_2_err = (AR_RMSE_2**2).mean().sum()
+        mod_3_err = (AR_RMSE_3**2).mean().sum()
 
         self.check_smaller(mod_1_err, zero_err)
         self.check_smaller(mod_2_err, mod_3_err)

@@ -15,17 +15,16 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
+from .greedy_grid_search import greedy_grid_search
+import time
+import scipy.sparse.linalg as spl
+import scipy.sparse as sp
 import numpy as np
 import pandas as pd
 import numba as nb
 import logging
 logger = logging.getLogger(__name__)
-import scipy.sparse as sp
-import scipy.sparse.linalg as spl
 
-import time
-
-from .greedy_grid_search import greedy_grid_search
 
 FEATURES_PERIODS_AND_INDEXERS = {
     'hour_of_day': (24, lambda index: index.hour),
@@ -52,7 +51,7 @@ def pandas_index_to_θ_index(index, used_features):
         result += indexer(index) * cum_periods[i]
     return result
 
-#@numba.jit
+# @numba.jit
 
 
 def build_block_diag_diff(N, diff, period):
@@ -62,7 +61,7 @@ def build_block_diag_diff(N, diff, period):
     # TODO refactor, make a numba-friendly for-loop
     return sp.block_diag([build_cyclic_diff(period, diff)] * num_blocks)
 
-#@numba.jit
+# @numba.jit
 
 
 def build_cyclic_diff(N, diff):
@@ -164,20 +163,39 @@ def _fit_baseline(data,
     return cg_solve(matrix, rhs, x0=theta_0)
 
 
-def fit_baseline(train, test,
-                 used_features,
-                 lambdas, **kwargs):
+# def fit_baseline(train, test,
+#                  used_features,
+#                  lambdas, **kwargs):
 
-    train = train.dropna()
 
-    if not len(train):
-        # , returning null baseline.')
-        logger.warning(f'Train column {train.name} is all NaNs')
-        # return 1., 0, 0, 0, False, np.array([0.]), \
-        #     np.sqrt((test.dropna()**2).mean()) if test is not None else None
+def fit_baseline(
+        data,
+        used_features, lambdas,
+        train_test_ratio, W=2, **kwargs):
 
-    if test is not None:
-        test = test.dropna()
+    assert type(data) is pd.Series
+
+    data = data.dropna()
+    logger.info(
+        f"Fitting non-par baseline for {data.name} with {len(data)} values.")
+
+    if not len(data):
+        raise NotImplementedError('No data!')
+
+    # train = train.dropna()
+
+    if np.any([el is None for el in lambdas]):
+        train = data.iloc[:int(len(data) * train_test_ratio)]
+        test = data.iloc[int(len(data) * train_test_ratio):]
+
+    # if not len(train):
+    #     # , returning null baseline.')
+    #     logger.warning(f'Train column {train.name} is all NaNs')
+    #     # return 1., 0, 0, 0, False, np.array([0.]), \
+    #     #     np.sqrt((test.dropna()**2).mean()) if test is not None else None
+
+    # if test is not None:
+    #     test = test.dropna()
 
         logger.debug('Autotuning baseline on %d train and %d test points' %
                      (len(train), len(test)))
@@ -203,15 +221,21 @@ def fit_baseline(train, test,
 
         optimal_rmse, lambdas = greedy_grid_search(test_RMSE,
                                                    lambda_ranges,
-                                                   num_steps=2)
+                                                   num_steps=W)
 
-    theta = _fit_baseline(train,
+    theta = _fit_baseline(data,
                           used_features,
                           lambdas)
 
-    std = np.std(data_to_residual(train,
-                                  std=1.,
-                                  used_features=used_features,
-                                  theta=theta))
+    residual = data_to_residual(data,
+                                std=1.,
+                                used_features=used_features,
+                                theta=theta)
 
-    return std, lambdas, theta, optimal_rmse if test is not None else None
+    # assert np.isclose(np.nanmean(residual), 0.)
+    std = np.sqrt(np.nanmean(residual**2))
+    if np.isnan(std) or std == 0.:
+        std = 1.
+
+    return std, lambdas, theta, None
+    # , optimal_rmse if test is not None else None
