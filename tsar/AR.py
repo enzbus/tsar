@@ -501,7 +501,7 @@ def fit_low_rank_plus_block_diagonal_AR(data,
     # cached_svd = {}
     # cached_factor_lag_covariances = {}
 
-    if (past_lag is None) or (rank is None):
+    if (quadratic_regularization is None) or (rank is None):
 
         train = data.iloc[:int(len(data) * train_test_ratio)]
         test = data.iloc[int(len(data) * train_test_ratio):]
@@ -548,7 +548,8 @@ def fit_low_rank_plus_block_diagonal_AR(data,
             if rank is None else [rank]
 
         max_lambda = M * (past_lag + future_lag)
-        quad_reg_range = max_lambda / alpha**np.arange(50)
+        quad_reg_range = max_lambda / alpha**np.arange(50)\
+            if quadratic_regularization is None else [quadratic_regularization]
 
         # np.nanmean((guessed[:, (prediction_mask & rmse_mask)] -
         #             real_values_rmse)**2)

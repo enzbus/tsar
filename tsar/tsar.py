@@ -64,7 +64,7 @@ class tsar:
                  ignore_prediction_columns: Optional[List[Any]] = None,
                  full_covariance_blocks: Optional[List[Any]] = None,
                  full_covariance: bool = False,
-                 quadratic_regularization: float = 0.,
+                 quadratic_regularization: float = None,
                  noise_correction: bool = False,
                  prediction_variables_weight: Optional[float] = None,
                  use_svd_fit: bool = False,

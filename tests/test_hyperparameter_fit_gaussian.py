@@ -56,7 +56,7 @@ class TestHyperParFitGaussian(TestCase):
         zero_pred_error = MSE(df2)
 
         print('MSE df1, MSE df2', pred_error, zero_pred_error)
-        self.assertTrue(pred_error < zero_pred_error)
+        self.assertTrue(pred_error <= zero_pred_error)
 
     def check_equal(self, df1, df2):
         pred_error = (df1**2).mean().mean()
@@ -121,6 +121,161 @@ class TestHyperParFitGaussian(TestCase):
         self.check_smaller(mod_1_err, zero_err)
         self.check_smaller(mod_2_err, mod_3_err)
         self.check_equal(mod_1_err, mod_3_err)
+
+    def test_force_rank(self):
+
+        P = 12
+        F = 12
+        R = 5
+
+        np.random.seed(1)
+        data = generate_data(M=20, T=2000, freq='6H',
+                             factor_autoreg_level=10.,
+                             R=R, trend=False)
+        train, test = data.iloc[:1000], data.iloc[1000:]
+
+        # train[random_mask(train.shape, density=0.3)] = np.nan
+
+        model_1 = tsar(train, P=P, F=F, R=R)
+        print(f'R = {model_1.rank}, lambda={model_1.quadratic_regularization}')
+        model_2 = tsar(train, P=P, F=F, R=R, use_svd_fit=True,
+                       noise_correction=True)
+        print(f'R = {model_2.rank}, lambda={model_2.quadratic_regularization}')
+        model_3 = tsar(train, P=P, F=F, R=R, use_svd_fit=True,
+                       noise_correction=False)
+        print(f'R = {model_3.rank}, lambda={model_3.quadratic_regularization}')
+
+        zero_err = 0.
+        mod_1_err = 0.
+        mod_2_err = 0.
+        mod_3_err = 0.
+        for t in [100, 150, 200, 250, 300]:
+            baseline_pred = model_1.predict(test.iloc[:1],
+                                            prediction_time=test.index[t])
+            mypred_1, real = evaluate_model(model_1, test, t=t)
+            mypred_2, real = evaluate_model(model_2, test, t=t)
+            mypred_3, real = evaluate_model(model_3, test, t=t)
+            # print(mypred, mypred-real)
+
+            zero_err += MSE(baseline_pred-real)
+            mod_1_err += MSE(mypred_1 - real)
+            mod_2_err += MSE(mypred_2 - real)
+            mod_3_err += MSE(mypred_3 - real)
+
+        self.check_smaller(mod_1_err, zero_err)
+        self.check_smaller(mod_2_err, mod_3_err)
+        self.check_equal(mod_1_err, mod_3_err)
+
+    def test_quad_reg(self):
+
+        P = 12
+        F = 12
+        R = 5
+        quadratic_regularization = 1.
+
+        np.random.seed(1)
+        data = generate_data(M=20, T=2000, freq='6H',
+                             factor_autoreg_level=10.,
+                             R=R, trend=False)
+        train, test = data.iloc[:1000], data.iloc[1000:]
+
+        # train[random_mask(train.shape, density=0.3)] = np.nan
+
+        model_1 = tsar(train, P=P, F=F,
+                       quadratic_regularization=quadratic_regularization)
+        print(f'R = {model_1.rank}, lambda={model_1.quadratic_regularization}')
+        model_2 = tsar(train, P=P, F=F,
+                       quadratic_regularization=quadratic_regularization,
+                       use_svd_fit=True,
+                       noise_correction=True)
+        print(f'R = {model_2.rank}, lambda={model_2.quadratic_regularization}')
+        model_3 = tsar(train, P=P, F=F,
+                       quadratic_regularization=quadratic_regularization,
+                       use_svd_fit=True,
+                       noise_correction=False)
+        print(f'R = {model_3.rank}, lambda={model_3.quadratic_regularization}')
+
+        zero_err = 0.
+        mod_1_err = 0.
+        mod_2_err = 0.
+        mod_3_err = 0.
+        for t in [100, 150, 200, 250, 300]:
+            baseline_pred = model_1.predict(test.iloc[:1],
+                                            prediction_time=test.index[t])
+            mypred_1, real = evaluate_model(model_1, test, t=t)
+            mypred_2, real = evaluate_model(model_2, test, t=t)
+            mypred_3, real = evaluate_model(model_3, test, t=t)
+            # print(mypred, mypred-real)
+
+            zero_err += MSE(baseline_pred-real)
+            mod_1_err += MSE(mypred_1 - real)
+            mod_2_err += MSE(mypred_2 - real)
+            mod_3_err += MSE(mypred_3 - real)
+
+        self.check_smaller(mod_1_err, zero_err)
+        self.check_smaller(mod_2_err, mod_3_err)
+        self.check_equal(mod_1_err, mod_3_err)
+        #
+
+    def test_missing_data(self):
+
+        P = 12
+        F = 12
+        M = 20
+
+        np.random.seed(1)
+        data = generate_data(M=M, T=2000, freq='6H',
+                             factor_autoreg_level=10.,
+                             R=5, trend=False)
+        train_covered, train_clean, test = data.iloc[:600],\
+            data.iloc[600:1000], data.iloc[1000:]
+
+        train_covered[random_mask(train_covered.shape, density=0.1)] = np.nan
+        train = pd.concat([train_covered, train_clean])
+
+        # print(train)
+        model_1 = tsar(train, P=P, F=F, R=1)
+        print(f'R = {model_1.rank}, lambda={model_1.quadratic_regularization}')
+        model_2 = tsar(train, P=P, F=F, R=1, use_svd_fit=True,
+                       noise_correction=True)
+        print(f'R = {model_2.rank}, lambda={model_2.quadratic_regularization}')
+        model_3 = tsar(train, P=P, F=F, R=1, use_svd_fit=True,
+                       noise_correction=False)
+        print(f'R = {model_3.rank}, lambda={model_3.quadratic_regularization}')
+    #     rank_uncorrected = 0
+    #     quad_reg_uncorrected = 0.5
+    #     rank_corrected = rank_uncorrected
+    #     quad_reg_corrected = 0.5
+    #
+    #     model_1 = tsar(train, P=P, F=F, R=rank_uncorrected,
+    #                    quadratic_regularization=quad_reg_uncorrected)
+    #     model_2 = tsar(train, P=P, F=F, R=rank_corrected, use_svd_fit=True,
+    #                    noise_correction=True,
+    #                    quadratic_regularization=quad_reg_corrected)
+    #     model_3 = tsar(train, P=P, F=F, R=rank_uncorrected, use_svd_fit=True,
+    #                    noise_correction=False,
+    #                    quadratic_regularization=quad_reg_uncorrected)
+    #
+        zero_err = 0.
+        mod_1_err = 0.
+        mod_2_err = 0.
+        mod_3_err = 0.
+        for t in [100, 150, 200, 250, 300, 350, 400, 450, 500]:
+            baseline_pred = model_1.predict(test.iloc[:1],
+                                            prediction_time=test.index[t])
+            mypred_1, real = evaluate_model(model_1, test, t=t)
+            mypred_2, real = evaluate_model(model_2, test, t=t)
+            mypred_3, real = evaluate_model(model_3, test, t=t)
+            # print(mypred, mypred-real)
+
+            zero_err += MSE(baseline_pred-real)
+            mod_1_err += MSE(mypred_1 - real)
+            mod_2_err += MSE(mypred_2 - real)
+            mod_3_err += MSE(mypred_3 - real)
+
+        self.check_smaller(mod_1_err, zero_err)
+        self.check_smaller(mod_2_err, mod_3_err)
+        self.check_smaller(mod_1_err, mod_3_err)
     #
     # def test_rank_one(self):
     #
