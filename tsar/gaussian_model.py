@@ -42,7 +42,7 @@ def check_toeplitz(square_matrix):
 # @nb.njit()
 def invert_build_dense_covariance_matrix(cov, lag):
     M = cov.shape[0]//lag
-    assert np.allclose(cov, cov.T)
+    assert np.all(np.isclose(cov, cov.T))
     lagged_covariances = np.empty((M, M, lag))
     for i in range(M):
         for j in range(M):
@@ -158,24 +158,46 @@ def _fit_low_rank_plus_block_diagonal_ar_using_eigendecomp(
         full_covariance: bool,
         full_covariance_blocks,
         noise_correction: bool,
-        variables_weight: np.array):
+        variables_weight: np.array,
+        workspace):
     """Interface to current infrastructure."""
 
-    lagged_covs = make_lagged_covariances(data.values, lag=lag)
-    Sigma_hat = build_dense_covariance_matrix(lagged_covs)
-    v = compute_principal_directions(rank, lagged_covs)
-    V = make_V(v, lag=lag)
-    logger.info('Computing Sigma_lr')
-    Sigma_lr = V @ Sigma_hat @ V.T
+    if 'lagged_covs' not in workspace:
+        workspace['lagged_covs'] = make_lagged_covariances(
+            data.values, lag=lag)
+        M = data.shape[1]
+        workspace['block_lagged_covs'] =\
+            [workspace['lagged_covs'][m:m+1, m:m+1, :] for m in range(M)]
+
+    if 'Sigma_hat'not in workspace:
+        workspace['Sigma_hat'] = \
+            build_dense_covariance_matrix(workspace['lagged_covs'])
+    if 'ranks' not in workspace:
+        workspace['ranks'] = {}
+    if rank not in workspace['ranks']:
+        workspace['ranks'][rank] = {}
+        workspace['ranks'][rank]['v'] = \
+            compute_principal_directions(rank, workspace['lagged_covs'])
+        workspace['ranks'][rank]['V'] = make_V(workspace['ranks'][rank]['v'],
+                                               lag=lag)
+        logger.info('Computing Sigma_lr')
+        workspace['ranks'][rank]['Sigma_lr'] =\
+            workspace['ranks'][rank]['V'] @ workspace['Sigma_hat'] @ \
+            workspace['ranks'][rank]['V'].T
+        workspace['ranks'][rank]['factor_lags'] = \
+            invert_build_dense_covariance_matrix(
+            workspace['ranks'][rank]['Sigma_lr'], lag)
+
+    # Sigma_lr = V @ Sigma_hat @ V.T
 
     # Sigma_lr, V, blocks, D = fit_low_rank_block_diagonal(
     #     lagged_covs, Sigma_hat, R=rank, P=lag, F=0)
     # return V, Sigma_lr, np.linalg.inv(Sigma_lr), blocks, D
-    M = data.shape[1]
-    block_lagged_covs = [lagged_covs[m:m+1, m:m+1, :] for m in range(M)]
+    # block_lagged_covs = [lagged_covs[m:m+1, m:m+1, :] for m in range(M)]
 
-    return v, invert_build_dense_covariance_matrix(Sigma_lr, lag),\
-        block_lagged_covs
+    return workspace['ranks'][rank]['v'], \
+        workspace['ranks'][rank]['factor_lags'],\
+        workspace['block_lagged_covs']
 
 
 def compute_sigmas(residual):

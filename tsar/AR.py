@@ -241,7 +241,8 @@ def _fit_low_rank_plus_block_diagonal_ar_using_svd(
         full_covariance: bool,
         full_covariance_blocks: List,
         noise_correction: bool,
-        variables_weight: np.array):
+        variables_weight: np.array,
+        workspace):
 
     logger.debug('Fitting low rank plus diagonal model.')
 
@@ -251,17 +252,27 @@ def _fit_low_rank_plus_block_diagonal_ar_using_svd(
             np.empty((0, 0, lag)), \
             [make_lagged_covariances(train.values, lag)]
 
+    if 'ranks' not in workspace:
+        workspace['ranks'] = {}
+    if rank not in workspace['ranks']:
+        workspace['ranks'][rank] = {}
+
     if train.shape[1] <= 1:
         u, s, v = np.empty((train.shape[0], 0)), \
             np.empty((0, 0)), np.empty((0, train.shape[1]))
 
     else:
-        # if rank not in cached_svd:
-        #     cached_svd[rank] = iterative_denoised_svd(train, rank)
-        # u, s, v = cached_svd[rank]
         u, s, v = iterative_denoised_svd(
             train * variables_weight, rank, noise_correction)
         v /= variables_weight.values
+        # workspace['ranks'][rank]['svd'] = u, s, v
+
+        # if rank not in cached_svd:
+        #     cached_svd[rank] = iterative_denoised_svd(train, rank)
+        # u, s, v = cached_svd[rank]
+        # u, s, v = iterative_denoised_svd(
+        #     train * variables_weight, rank, noise_correction)
+        # v /= variables_weight.values
 
     # if rank not in cached_factor_lag_covariances:
     #     cached_factor_lag_covariances[rank] = [[] for i in range(rank)]
@@ -286,11 +297,20 @@ def _fit_low_rank_plus_block_diagonal_ar_using_svd(
     #     cur += size
 
     # D_matrix = sp.block_diag(D_blocks).todense()
+    if 's_times_v' not in workspace['ranks'][rank]:
+        workspace['ranks'][rank]['s_times_v'] = np.diag(s) @ v
+    if 'factor_lagged_covs' not in workspace['ranks'][rank]:
+        workspace['ranks'][rank]['factor_lagged_covs'] = \
+            make_lagged_covariances(u, lag)
 
-    return np.diag(s) @ v, \
-        make_lagged_covariances(u, lag), \
-        [make_lagged_covariances(train[block].values, lag) for block in
-         full_covariance_blocks]
+    if 'block_lagged_covs' not in workspace:
+        workspace['block_lagged_covs'] = \
+            [make_lagged_covariances(train[block].values, lag) for block in
+             full_covariance_blocks]
+
+    return workspace['ranks'][rank]['s_times_v'], \
+        workspace['ranks'][rank]['factor_lagged_covs'], \
+        workspace['block_lagged_covs']
 
 
 def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
@@ -519,6 +539,8 @@ def fit_low_rank_plus_block_diagonal_AR(data,
 
             lag = past_lag + future_lag
 
+            workspace = {}
+
             s_times_v, S_lagged_covariances, block_lagged_covariances = \
                 fitter(
                     train, lag, rank,  # cached_lag_covariances, cached_svd,
@@ -526,7 +548,8 @@ def fit_low_rank_plus_block_diagonal_AR(data,
                     full_covariance,
                     full_covariance_blocks,
                     noise_correction,
-                    variables_weight)
+                    variables_weight,
+                    workspace=workspace)
 
             V, S, S_inv, D_blocks, D_matrix = build_matrices(
                 s_times_v,
@@ -566,6 +589,7 @@ def fit_low_rank_plus_block_diagonal_AR(data,
     logger.info(f"Fitting Gaussian model with rank = {rank},")
     logger.info(f"chosen λ = {quadratic_regularization}")
 
+    workspace = {}
     lag = past_lag + future_lag
     s_times_v, S_lagged_covariances, block_lagged_covariances = \
         fitter(
@@ -574,7 +598,8 @@ def fit_low_rank_plus_block_diagonal_AR(data,
             full_covariance,
             full_covariance_blocks,
             noise_correction,
-            variables_weight)
+            variables_weight,
+            workspace=workspace)
 
     return past_lag, rank, quadratic_regularization, \
         s_times_v, S_lagged_covariances, block_lagged_covariances

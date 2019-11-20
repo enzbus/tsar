@@ -28,3 +28,10 @@ Per caricare su pip, dopo aver cambiato la versione in setup.py
 source ./ambiente/bin/activate
 bash pip_upload.sh
 ```
+
+Per profilare i test
+```
+pip install nose-cprof snakeviz
+nosetests --with-cprofile
+snakeviz stats.dat
+```
