@@ -533,11 +533,12 @@ def fit_low_rank_plus_block_diagonal_AR(data,
                 S_lagged_covariances,
                 block_lagged_covariances)
 
-            RMSE_df = rmse_AR(V, S, S_inv, D_blocks,
-                              D_matrix,
+            RMSE_df = rmse_AR(V, S, S_inv, D_blocks, D_matrix,
                               past_lag, future_lag, test,
                               available_data_lags_columns,
-                              quadratic_regularization)
+                              ignore_prediction_columns,
+                              quadratic_regularization,
+                              do_gradients=False)
 
             return RMSE_df.loc[:, ~RMSE_df.columns.isin(
                 ignore_prediction_columns)].sum().sum()
