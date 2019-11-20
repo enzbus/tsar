@@ -24,6 +24,8 @@ import logging
 # import scipy.sparse.linalg as spl
 logger = logging.getLogger(__name__)
 
+# TODO THIS FILE IS CURRENTLY NOT USED
+
 
 def symm_slice_blocks(blocks, block_indexes, mask):
     # TODO jit

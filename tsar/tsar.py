@@ -125,6 +125,8 @@ class tsar:
 
         self.parallel_fit = parallel_fit
 
+        self.prediction_cache = {}
+
         # self.columns = self.data.columns
 
         # FIT
@@ -571,7 +573,8 @@ class tsar:
             prediction_mask=~known_mask,
             real_result=None,
             return_conditional_covariance=return_sigmas,
-            quadratic_regularization=self.quadratic_regularization)
+            quadratic_regularization=self.quadratic_regularization,
+            prediction_cache=self.prediction_cache)
 
         # res = symm_low_rank_plus_block_diag_schur(
         #     V=self.V,

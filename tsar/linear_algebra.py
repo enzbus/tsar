@@ -16,13 +16,13 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
 
+import scipy.sparse as sp
 import numpy as np
 import pandas as pd
 import numba as nb
 import logging
 import scipy.sparse.linalg as spl
 logger = logging.getLogger(__name__)
-import scipy.sparse as sp
 
 
 def _iterative_denoised_svd(dataframe, P, noise_correction, T=10):
@@ -178,6 +178,25 @@ def symm_slice_blocks(blocks, block_indexes, mask):
 
 #     return res
 
+def compute_sliced_D_inv(D_blocks, D_blocks_indexes,
+                         known_mask, quadratic_regularization,
+                         prediction_cache):
+
+    sliced_D_blocks = symm_slice_blocks(D_blocks, D_blocks_indexes,
+                                        known_mask)
+    inverse_blocks = []
+    count = 0
+    for block in sliced_D_blocks:
+        # how_many_var_in_bloc = block.shape[0] // lag
+        inverse_blocks.append(np.linalg.inv(
+            block + np.eye(block.shape[0]) *
+            quadratic_regularization
+            # quadratic_regularization * np.eye(block.shape[0])
+        ))
+        count += block.shape[0]
+    sliced_D_inv = sp.block_diag(inverse_blocks).todense()
+    return sliced_D_inv
+
 
 def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
                                         S: np.matrix,
@@ -192,7 +211,8 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
                                         quadratic_regularization: float,
                                         return_conditional_covariance=False,
                                         do_anomaly_score=False,
-                                        return_gradient=False):
+                                        return_gradient=False,
+                                        prediction_cache=None):
     """Let Sigma = V @ S @ V^T + D,
     where D is a block diagonal matrix.
 
@@ -200,15 +220,21 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
     expectation, with mean zero, and optionally
     return the conditional covariance.
     """
-
-    #prediction_mask = ~known_mask
+    if prediction_cache is None:
+        prediction_cache = {}
+    # prediction_mask = ~known_mask
 
     logger.debug('Solving Schur complement of low-rank plus block diagonal.')
 
     # TODO fix upstream
     # V = sp.csc_matrix(V)
     assert V.__class__ is sp.csc.csc_matrix
+    # V_sparse = V
     V = V.todense()
+    # if 'Vdense' not in prediction_cache:
+    #     prediction_cache['Vdense'] = V.todense()
+    # V = prediction_cache['Vdense']
+
     assert (S.__class__ is np.matrix) or (S.__class__ is np.ndarray)
     # S = S.todense() if hasattr(S, 'todense') else S
     # TODO this is not needed I guess, rethink everything here!
@@ -217,19 +243,33 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
 
     # D_matrix = sp.csc_matrix(D_matrix)
 
-    sliced_V = V[known_mask, :]
-    sliced_D_blocks = symm_slice_blocks(D_blocks, D_blocks_indexes, known_mask)
-    inverse_blocks = []
-    count = 0
-    for block in sliced_D_blocks:
-        #how_many_var_in_bloc = block.shape[0] // lag
-        inverse_blocks.append(np.linalg.inv(
-            block + np.eye(block.shape[0]) * quadratic_regularization
-            #quadratic_regularization * np.eye(block.shape[0])
-        ))
-        count += block.shape[0]
+    # if 'sliced_V' not in prediction_cache:
+    #     prediction_cache['sliced_V'] = {}
+    #     prediction_cache['B'] = {}
+    # if tuple(known_mask) not in prediction_cache['sliced_V']:
+    #     prediction_cache['sliced_V'][tuple(known_mask)] = V[known_mask, :]
+    # # sliced_V = V[known_mask, :]
+    # sliced_V = prediction_cache['sliced_V'][tuple(known_mask)]
 
-    sliced_D_inv = sp.block_diag(inverse_blocks).todense()
+    sliced_V = V[known_mask, :]
+
+    # sliced_D_blocks = \
+    # symm_slice_blocks(D_blocks, D_blocks_indexes, known_mask)
+    # inverse_blocks = []
+    # count = 0
+    # for block in sliced_D_blocks:
+    #     # how_many_var_in_bloc = block.shape[0] // lag
+    #     inverse_blocks.append(np.linalg.inv(
+    #         block + np.eye(block.shape[0]) * quadratic_regularization
+    #         # quadratic_regularization * np.eye(block.shape[0])
+    #     ))
+    #     count += block.shape[0]
+    #
+    # sliced_D_inv = sp.block_diag(inverse_blocks).todense()
+
+    sliced_D_inv = compute_sliced_D_inv(D_blocks, D_blocks_indexes,
+                                        known_mask, quadratic_regularization,
+                                        prediction_cache)
 
     C_inv = woodbury_inverse(V=sliced_V,
                              S_inv=S_inv,
@@ -239,6 +279,13 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
         # TODO should adjust by diag of C
         return (C_inv @ known_matrix.T)
 
+    # if tuple(known_mask) not in prediction_cache['B']:
+    #     logger.debug('Building B matrix')
+    #     prediction_cache['B'][tuple(known_mask)] =\
+    #         V[prediction_mask, :] @ S @ sliced_V.T + \
+    #         D_matrix[prediction_mask].T[known_mask].T
+    #
+    # B = prediction_cache['B'][tuple(known_mask)]
     logger.debug('Building B matrix')
     B = V[prediction_mask, :] @ S @ sliced_V.T + \
         D_matrix[prediction_mask].T[known_mask].T
@@ -264,7 +311,8 @@ def symm_low_rank_plus_block_diag_schur(V: sp.csc.csc_matrix,
         right = partial
         # print(right.shape)
         logger.info('Computing gradient')
-        gradient = [(left[:, i].T @ right[i].T)[0, 0] for i in range(left.shape[1])]
+        gradient = [(left[:, i].T @ right[i].T)[0, 0]
+                    for i in range(left.shape[1])]
         # print(gradient)
         return conditional_expect, gradient
 

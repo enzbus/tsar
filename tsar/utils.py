@@ -38,5 +38,20 @@ def check_multidimensional_time_series(data, frequency=None, columns=None):
         raise ValueError('Data columns are not correct.')
 
 
-def DataFrameRMSE(df1, df2):
+def DataFrameRMSE_old(df1, df2):
     return np.sqrt(((df1 - df2)**2).mean())
+
+
+def DataFrameRMSE(df1, df2):
+    result = matrix_rmse(df1.values, df2.values)
+    return pd.Series(result, index=df1.columns)
+
+
+def matrix_rmse(mat1, mat2):
+    assert (mat1.shape == mat2.shape)
+    m, n = mat1.shape
+
+    result = np.zeros(n)
+    for i in range(n):
+        result[i] = np.sqrt(np.nanmean((mat1[:, i] - mat2[:, i])**2))
+    return result

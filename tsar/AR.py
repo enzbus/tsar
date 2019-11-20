@@ -242,7 +242,7 @@ def _fit_low_rank_plus_block_diagonal_ar_using_svd(
         full_covariance_blocks: List,
         noise_correction: bool,
         variables_weight: np.array,
-        workspace):
+        workspace: dict):
 
     logger.debug('Fitting low rank plus diagonal model.')
 
@@ -338,6 +338,7 @@ def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
         gradients[:, :] = np.nan
 
     total_num_predictions_made = 0
+    prediction_cache = {}
     for i in range(len(ranked_masks))[:max_eval]:
 
         logger.info('null mask %d' % i)
@@ -368,7 +369,8 @@ def guess_matrix(matrix_with_na: np.ndarray, V, S, S_inv,
                 return_conditional_covariance=False,
                 quadratic_regularization=quadratic_regularization,
                 do_anomaly_score=do_anomaly_score,
-                return_gradient=do_gradients)
+                return_gradient=do_gradients,
+                prediction_cache=prediction_cache)
 
         if do_gradients:
             result, gradient = _
