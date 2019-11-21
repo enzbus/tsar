@@ -92,14 +92,15 @@ class TestBaseline(TestCase):
     def test_fit_baseline(self):
         print(self.train.head())
 
-        daily_harmonics, weekly_harmonics, annual_harmonics,
-        trend, baseline_fit_results, std = fit_scalar_baseline(self.train,
-                                                               K_day=None,
-                                                               K_week=None,
-                                                               K_year=None,
-                                                               K_trend=None,
-                                                               train_test_ratio=2/3,
-                                                               gamma=1E-8, W=2)
+        daily_harmonics, weekly_harmonics, annual_harmonics, \
+            trend, baseline_fit_results, std = \
+            fit_scalar_baseline(self.train,
+                                K_day=None,
+                                K_week=None,
+                                K_year=None,
+                                K_trend=None,
+                                train_test_ratio=2/3,
+                                gamma=1E-8, W=2)
 
         train_baseline = normalized_residual_to_data(
             pd.Series(0., index=self.train.index),
