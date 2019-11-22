@@ -188,6 +188,8 @@ def fit_baseline(
         train = data.iloc[:int(len(data) * train_test_ratio)]
         test = data.iloc[int(len(data) * train_test_ratio):]
 
+        train_scale = np.sqrt((train**2).mean())
+
     # if not len(train):
     #     # , returning null baseline.')
     #     logger.warning(f'Train column {train.name} is all NaNs')
@@ -196,15 +198,16 @@ def fit_baseline(
 
     # if test is not None:
     #     test = test.dropna()
-
         logger.debug('Autotuning baseline on %d train and %d test points' %
                      (len(train), len(test)))
 
         lambda_ranges = [np.logspace(-6, 3, 20)[::-1]
                          if λ is None else [λ] for λ in lambdas]
 
+        logger.debug(f'Scaling train data by {train_scale}')
+
         QTQ = make_cyclic_regularization_mats(used_features)
-        P, x = make_least_squares_cost(train, used_features)
+        P, x = make_least_squares_cost(train/train_scale, used_features)
         theta_cache = np.zeros(QTQ[0].shape[0])
 
         def test_RMSE(*lambdas):
@@ -217,15 +220,18 @@ def fit_baseline(
                 ((test - compute_baseline(
                     test.index,
                     used_features,
-                    theta))**2).mean())
+                    theta * train_scale))**2).mean())
 
         optimal_rmse, lambdas = greedy_grid_search(test_RMSE,
                                                    lambda_ranges,
                                                    num_steps=W)
 
-    theta = _fit_baseline(data,
+    data_scale = np.sqrt((data**2).mean())
+    logger.debug(f'Scaling data by {data_scale}')
+
+    theta = _fit_baseline(data/data_scale,
                           used_features,
-                          lambdas)
+                          lambdas) * data_scale
 
     residual = data_to_residual(data,
                                 std=1.,
