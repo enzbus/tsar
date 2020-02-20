@@ -207,7 +207,7 @@ def fit_baseline(
         logger.debug(f'Scaling train data by {train_scale}')
 
         QTQ = make_cyclic_regularization_mats(used_features)
-        P, x = make_least_squares_cost(train/train_scale, used_features)
+        P, x = make_least_squares_cost(train / train_scale, used_features)
         theta_cache = np.zeros(QTQ[0].shape[0])
 
         def test_RMSE(*lambdas):
@@ -229,7 +229,7 @@ def fit_baseline(
     data_scale = np.sqrt((data**2).mean())
     logger.debug(f'Scaling data by {data_scale}')
 
-    theta = _fit_baseline(data/data_scale,
+    theta = _fit_baseline(data / data_scale,
                           used_features,
                           lambdas) * data_scale
 
@@ -243,5 +243,5 @@ def fit_baseline(
     if np.isnan(std) or std == 0.:
         std = 1.
 
-    return std, lambdas, theta, None
+    return optimal_rmse, std, lambdas, theta, None
     # , optimal_rmse if test is not None else None

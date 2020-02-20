@@ -180,19 +180,19 @@ def build_dense_covariance_matrix(lagged_covariances):
 @nb.njit()
 def check_toeplitz(square_matrix):
     m, _ = square_matrix.shape
-    for i in range(m-1):
-        for j in range(m-1):
-            assert square_matrix[i, j] == square_matrix[i+1, j+1]
+    for i in range(m - 1):
+        for j in range(m - 1):
+            assert square_matrix[i, j] == square_matrix[i + 1, j + 1]
 
 
 @nb.njit()
 def invert_build_dense_covariance_matrix(cov, lag):
-    M = cov.shape[0]//lag
+    M = cov.shape[0] // lag
     assert np.all(cov == cov.T)
     lagged_covariances = np.empty((M, M, lag))
     for i in range(M):
         for j in range(M):
-            toeplitz_block = cov[i*lag:(i+1)*lag, j*lag:(j+1)*lag]
+            toeplitz_block = cov[i * lag:(i + 1) * lag, j * lag:(j + 1) * lag]
             check_toeplitz(toeplitz_block)
             lagged_covariances[i, j, :] = toeplitz_block[0, :]
     return lagged_covariances
@@ -523,10 +523,41 @@ def fit_low_rank_plus_block_diagonal_AR(data,
     # cached_svd = {}
     # cached_factor_lag_covariances = {}
 
-    if (quadratic_regularization is None) or (rank is None):
+    train = data.iloc[:int(len(data) * train_test_ratio)]
+    test = data.iloc[int(len(data) * train_test_ratio):]
 
-        train = data.iloc[:int(len(data) * train_test_ratio)]
-        test = data.iloc[int(len(data) * train_test_ratio):]
+    def test_RMSE(rank, quadratic_regularization):
+
+        lag = past_lag + future_lag
+
+        workspace = {}
+
+        s_times_v, S_lagged_covariances, block_lagged_covariances = \
+            fitter(
+                train, lag, rank,  # cached_lag_covariances, cached_svd,
+                # cached_factor_lag_covariances,
+                full_covariance,
+                full_covariance_blocks,
+                noise_correction,
+                variables_weight,
+                workspace=workspace)
+
+        V, S, S_inv, D_blocks, D_matrix = build_matrices(
+            s_times_v,
+            S_lagged_covariances,
+            block_lagged_covariances)
+
+        RMSE_df = rmse_AR(V, S, S_inv, D_blocks, D_matrix,
+                          past_lag, future_lag, test,
+                          available_data_lags_columns,
+                          ignore_prediction_columns,
+                          quadratic_regularization,
+                          do_gradients=False)
+
+        return RMSE_df.loc[:, ~RMSE_df.columns.isin(
+            ignore_prediction_columns)]
+
+    if (quadratic_regularization is None) or (rank is None):
 
         logger.info(f"Tuning hyper-parameters with {len(train)} train and "
                     f"{len(test)} test points")
@@ -537,36 +568,8 @@ def fit_low_rank_plus_block_diagonal_AR(data,
         if not len(test):
             raise ValueError("There is not enough test data.")
 
-        def test_RMSE(rank, quadratic_regularization):
-
-            lag = past_lag + future_lag
-
-            workspace = {}
-
-            s_times_v, S_lagged_covariances, block_lagged_covariances = \
-                fitter(
-                    train, lag, rank,  # cached_lag_covariances, cached_svd,
-                    # cached_factor_lag_covariances,
-                    full_covariance,
-                    full_covariance_blocks,
-                    noise_correction,
-                    variables_weight,
-                    workspace=workspace)
-
-            V, S, S_inv, D_blocks, D_matrix = build_matrices(
-                s_times_v,
-                S_lagged_covariances,
-                block_lagged_covariances)
-
-            RMSE_df = rmse_AR(V, S, S_inv, D_blocks, D_matrix,
-                              past_lag, future_lag, test,
-                              available_data_lags_columns,
-                              ignore_prediction_columns,
-                              quadratic_regularization,
-                              do_gradients=False)
-
-            return RMSE_df.loc[:, ~RMSE_df.columns.isin(
-                ignore_prediction_columns)].sum().sum()
+        def ggs_test_RMSE(rank, quadratic_regularization):
+            return test_RMSE(rank, quadratic_regularization).sum().sum()
 
         M = data.shape[1]
         rank_range = np.arange(0, M - noise_correction)\
@@ -585,11 +588,13 @@ def fit_low_rank_plus_block_diagonal_AR(data,
         #                         rank_range],
         #                        num_steps=2)
         _, (rank, quadratic_regularization) = greedy_grid_search(
-            test_RMSE, [rank_range, quad_reg_range],
+            ggs_test_RMSE, [rank_range, quad_reg_range],
             num_steps=W)
 
     logger.info(f"Fitting Gaussian model with rank = {rank},")
     logger.info(f"chosen λ = {quadratic_regularization}")
+
+    internal_RMSE = test_RMSE(rank, quadratic_regularization)
 
     workspace = {}
     lag = past_lag + future_lag
@@ -603,7 +608,7 @@ def fit_low_rank_plus_block_diagonal_AR(data,
             variables_weight,
             workspace=workspace)
 
-    return past_lag, rank, quadratic_regularization, \
+    return internal_RMSE, past_lag, rank, quadratic_regularization, \
         s_times_v, S_lagged_covariances, block_lagged_covariances
 
 

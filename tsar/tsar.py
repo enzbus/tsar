@@ -288,7 +288,9 @@ class tsar:
                        data: pd.DataFrame):
 
         # TODO pass W and gamma
-        self.baseline_results_columns, self.baseline_params_columns = \
+        self.baseline_RMSE, \
+            self.baseline_results_columns, \
+            self.baseline_params_columns = \
             fit_many_baselines(
                 data,
                 baseline_params_dict=self.baseline_params_columns,
@@ -370,7 +372,7 @@ class tsar:
         # self.Sigma, self.past_lag, self.rank, \
         #     predicted_residuals_at_lags
 
-        self.past_lag, self.rank, self.quadratic_regularization, \
+        self.AR_RMSE, self.past_lag, self.rank, self.quadratic_regularization, \
             self.s_times_v, self.S_lagged_covariances, \
             self.block_lagged_covariances = \
             fit_low_rank_plus_block_diagonal_AR(
@@ -390,6 +392,9 @@ class tsar:
                 alpha=np.cbrt(10),
                 W=2)
 
+        for col in self.AR_RMSE.columns:
+            self.AR_RMSE[col] *= self.baseline_results_columns[col]['std']
+
         # (self._residual(train),
         #                                     self._residual(
         #     test) if test is not None else None,
@@ -406,6 +411,13 @@ class tsar:
         #     use_svd_fit=self.use_svd_fit)
 
         self._build_matrices()
+
+    def _test_AR(self, test):
+
+        temp = self.compute_gradients
+        self.compute_gradients = False
+        self.AR_RMSE = self.test_AR(test)
+        self.compute_gradients = temp
 
     def test_AR(self, test):
 

@@ -57,11 +57,11 @@ class TestBaseline(TestCase):
 
         baseline_params_dict = sanitize_baseline_params(
             baseline_params_dict, all_data.columns)
-        results, params = fit_many_baselines(all_data,
-                                             baseline_params_dict,
-                                             train_test_ratio=2/3,
-                                             gamma=1E-8, W=2,
-                                             parallel=True)
+        _, results, params = fit_many_baselines(all_data,
+                                                baseline_params_dict,
+                                                train_test_ratio=2 / 3,
+                                                gamma=1E-8, W=2,
+                                                parallel=True)
         for col in results:
             print(col, results[col]['std'])
 
@@ -92,14 +92,14 @@ class TestBaseline(TestCase):
     def test_fit_baseline(self):
         print(self.train.head())
 
-        daily_harmonics, weekly_harmonics, annual_harmonics, \
+        _, daily_harmonics, weekly_harmonics, annual_harmonics, \
             trend, baseline_fit_results, std = \
             fit_scalar_baseline(self.train,
                                 K_day=None,
                                 K_week=None,
                                 K_year=None,
                                 K_trend=None,
-                                train_test_ratio=2/3,
+                                train_test_ratio=2 / 3,
                                 gamma=1E-8, W=2)
 
         train_baseline = normalized_residual_to_data(
@@ -147,11 +147,11 @@ class TestBaseline(TestCase):
 
         import time
         s = time.time()
-        all_baseline_fit_results, baseline_params_dict = fit_many_baselines(mydata,
-                                                                            {col: {
-                                                                            } for col in mydata.columns},
-                                                                            parallel=False)
-        non_par_time = (time.time()-s)
+        _, all_baseline_fit_results, baseline_params_dict = fit_many_baselines(mydata,
+                                                                               {col: {
+                                                                               } for col in mydata.columns},
+                                                                               parallel=False)
+        non_par_time = (time.time() - s)
         print('non parallel took %.2f seconds' % non_par_time)
         print(baseline_params_dict)
 
@@ -171,11 +171,11 @@ class TestBaseline(TestCase):
         self.assertTrue(np.mean((bas1 - bas2)**2) / (bas1**2).mean() < 0.05)
 
         s = time.time()
-        all_baseline_fit_results_par, baseline_params_dict_par = fit_many_baselines(mydata,
-                                                                                    {col: {
-                                                                                    } for col in mydata.columns},
-                                                                                    parallel=True)
-        par_time = (time.time()-s)
+        _, all_baseline_fit_results_par, baseline_params_dict_par = fit_many_baselines(mydata,
+                                                                                       {col: {
+                                                                                       } for col in mydata.columns},
+                                                                                       parallel=True)
+        par_time = (time.time() - s)
         print('parallel took %.2f seconds' % par_time)
 
         if multiprocessing.cpu_count() >= 4:

@@ -28,7 +28,7 @@ from tsar.non_par_baseline import fit_baseline as non_par_fit_baseline
 
 logger = logging.getLogger(__name__)
 
-MAX_DAILY_HARMONICS = 24*4
+MAX_DAILY_HARMONICS = 24 * 4
 
 POOL_MAPPER = Pool().map
 
@@ -53,10 +53,10 @@ def fit_seasonal_baseline(X, y, gamma=1E-8):
     regularizer = np.eye(num_coeff)
     if num_coeff % 2:
         # if odd, then beta_0 is last element
-        regularizer[num_coeff-1, num_coeff-1] = 0.
+        regularizer[num_coeff - 1, num_coeff - 1] = 0.
     else:
         # otherwise it is second to last element
-        regularizer[num_coeff-2, num_coeff-2] = 0.
+        regularizer[num_coeff - 2, num_coeff - 2] = 0.
     return np.linalg.solve(X.T @ X + gamma * regularizer,
                            X.T @ y)
 
@@ -161,7 +161,7 @@ def fit_scalar_baseline(data,
                         K_week=None,
                         K_year=None,
                         K_trend=None,
-                        train_test_ratio=2/3,
+                        train_test_ratio=2 / 3,
                         gamma=1E-8, W=2, **kwargs):
 
     assert type(data) is pd.Series
@@ -214,7 +214,7 @@ def fit_scalar_baseline(data,
             is None else [K_year]
         K_trend_range = [False, True] if K_trend is None else [K_trend]
 
-        _, (K_day, K_week, K_year, K_trend) = greedy_grid_search(
+        internal_RMSE, (K_day, K_week, K_year, K_trend) = greedy_grid_search(
             test_RMSE, [K_day_range, K_week_range,
                         K_year_range, K_trend_range],
             num_steps=W)
@@ -244,7 +244,7 @@ def fit_scalar_baseline(data,
     if np.isnan(std) or std == 0.:
         std = 1.
 
-    return K_day, K_week, K_year, K_trend, baseline_fit_result, std
+    return internal_RMSE, K_day, K_week, K_year, K_trend, baseline_fit_result, std
 
 
 def fit_scalar_wrapper(args):
@@ -275,7 +275,8 @@ def fit_scalar_wrapper(args):
 
     # params = {}
     if 'non_par_baseline' not in params or not params['non_par_baseline']:
-        K_day, K_week, K_year, K_trend, baseline_fit_result, std =\
+        internal_RMSE, K_day, K_week, K_year, K_trend, \
+            baseline_fit_result, std =\
             fit_scalar_baseline(
                 data_series,
                 **params,
@@ -287,22 +288,23 @@ def fit_scalar_wrapper(args):
         params['K_trend'] = K_trend
         results = {'baseline_fit_result': baseline_fit_result, 'std': std}
     else:
-        std, lambdas, theta, _ = non_par_fit_baseline(
+        internal_RMSE, std, lambdas, theta, _ = non_par_fit_baseline(
             data_series,
             **params, train_test_ratio=train_test_ratio, W=W)
         params['lambdas'] = lambdas
         results = {'theta': theta, 'std': std}
 
-    return params, results
+    return internal_RMSE, params, results
 
 
 def fit_many_baselines(data,
                        baseline_params_dict,
-                       train_test_ratio=2/3,
+                       train_test_ratio=2 / 3,
                        gamma=1E-8, W=2,
                        parallel=True):
 
     all_baseline_fit_results = {}
+    all_baseline_RMSE = {}
 
     arguments = [(data[col].dropna(),
                   baseline_params_dict[col],
@@ -320,10 +322,12 @@ def fit_many_baselines(data,
     #     (fit_scalar_wrapper, arguments))
 
     for i, col in enumerate(data.columns):
-        baseline_params_dict[col], all_baseline_fit_results[col] = \
+        all_baseline_RMSE[col],\
+            baseline_params_dict[col], \
+            all_baseline_fit_results[col] = \
             results[i]
 
-    return all_baseline_fit_results, baseline_params_dict
+    return pd.Series(all_baseline_RMSE), all_baseline_fit_results, baseline_params_dict
 
 
 # def fit_many_baselines_parallel(data,
