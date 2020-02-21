@@ -41,18 +41,21 @@ def sanitize_baseline_params(params, columns):
     return params
 
 
-def check_multidimensional_time_series(data, frequency=None, columns=None):
+def check_multidimensional_time_series(data,
+                                       frequency=None, columns=None,
+                                       trust_contiguous_intervals=False):
     if not isinstance(data, pd.DataFrame):
         raise TypeError(
             'Data must be a pandas DataFrame')
     if not isinstance(data.index, pd.DatetimeIndex):
         raise TypeError(
             'Data must be indexed by a pandas DatetimeIndex.')
-    if data.index.freq is None:
-        raise ValueError('Data index must have a frequency. ' +
-                         'Try using the pandas.DataFrame.asfreq method.')
-    if not frequency is None and not (data.index.freq == frequency):
-        raise ValueError('Data index frequency is not correct.')
+    if not trust_contiguous_intervals:
+        if data.index.freq is None:
+            raise ValueError('Data index must have a frequency. ' +
+                             'Try using the pandas.DataFrame.asfreq method.')
+        if not frequency is None and not (data.index.freq == frequency):
+            raise ValueError('Data index frequency is not correct.')
     if not columns is None and not np.all(data.columns == columns):
         raise ValueError('Data columns are not correct.')
 

@@ -70,16 +70,21 @@ class tsar:
                  prediction_variables_weight: Optional[float] = None,
                  use_svd_fit: bool = False,
                  compute_gradients: bool = False,
-                 parallel_fit=True):
+                 parallel_fit=True,
+                 trust_contiguous_intervals=False):
 
         # TODO REMOVE NULL COLUMNS OR REFUSE THEM
 
         # TODO TELL USER WHEN INTERNAL TRAIN DATA IS ALL MISSING!
 
-        check_multidimensional_time_series(data)
+        self.trust_contiguous_intervals = trust_contiguous_intervals
+        check_multidimensional_time_series(
+            data,
+            trust_contiguous_intervals=self.trust_contiguous_intervals)
 
         # self.data = data
-        self.frequency = data.index.freq
+        self.frequency = data.index.freq \
+            if not trust_contiguous_intervals else None
         self.future_lag = F
         self.past_lag = P
         self.rank = R
@@ -509,7 +514,10 @@ class tsar:
     def predict_many(self,
                      data: pd.DataFrame):
 
-        check_multidimensional_time_series(data, self.frequency, self.columns)
+        check_multidimensional_time_series(
+            data,
+            self.frequency, self.columns,
+            trust_contiguous_intervals=self.trust_contiguous_intervals)
 
         data = data[self.columns]
         residuals = self._residual(data)
@@ -548,19 +556,32 @@ class tsar:
                 prediction_time:
                 Optional[pd.Timestamp] = None,
                 return_sigmas=False) -> pd.DataFrame:
-        check_multidimensional_time_series(data, self.frequency, self.columns)
+        check_multidimensional_time_series(
+            data,
+            self.frequency, self.columns,
+            trust_contiguous_intervals=self.trust_contiguous_intervals)
 
         data = data[self.columns]
 
         if prediction_time is None:
+            if self.trust_contiguous_intervals:
+                raise Exception(
+                    'When using contiguous intervals must provide ts of pred.')
             prediction_time = data.index[-1] + self.frequency
 
         logger.debug('Predicting at time %s.' % prediction_time)
 
-        prediction_index = pd.date_range(
-            start=prediction_time - self.frequency * self.past_lag,
-            end=prediction_time + self.frequency * (self.future_lag - 1),
-            freq=self.frequency)
+        if self.trust_contiguous_intervals:
+
+            i, = pd.np.where(prediction_time == data.index)
+            prediction_index = \
+                data.index[i[0] - self.past_lag:i[0] + self.future_lag]
+
+        else:
+            prediction_index = pd.date_range(
+                start=prediction_time - self.frequency * self.past_lag,
+                end=prediction_time + self.frequency * (self.future_lag - 1),
+                freq=self.frequency)
 
         prediction_slice = data.reindex(prediction_index)
         residual_slice = self._residual(prediction_slice)
