@@ -467,7 +467,7 @@ class tsar:
         residual = self._residual(test)
         baseline = self.baseline(test.index)
         baseline_RMSE = DataFrameRMSE(test, baseline)
-        AR_RMSE = self.test_AR(residual)
+        AR_RMSE = self.test_AR(test)
         return baseline_RMSE, AR_RMSE
 
     def _residual(self, data: pd.DataFrame) -> pd.DataFrame:

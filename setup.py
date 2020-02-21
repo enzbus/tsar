@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='tsar',
-    version='0.8.4',
+    version='0.8.4.1',
     description='Time series auto-regressor.',
     author='Enzo Busseti',
     license='GPLv3+',
