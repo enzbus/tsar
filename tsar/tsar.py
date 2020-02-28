@@ -15,29 +15,26 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
+import pickle
+import gzip
+import logging
+from typing import Optional, List, Any
+
+import pandas as pd
+import numpy as np
+
 from .non_par_baseline import fit_baseline as non_par_fit_baseline, \
     data_to_residual as non_par_data_to_residual, \
     residual_to_data as non_par_residual_to_data
-from .linear_algebra import symm_low_rank_plus_block_diag_schur, \
-    make_block_indexes
 from .utils import DataFrameRMSE, check_multidimensional_time_series,\
     sanitize_baseline_params
 from .AR import fit_low_rank_plus_block_diagonal_AR, \
-    rmse_AR, anomaly_score, build_matrices, \
+    rmse_AR, build_matrix, \
     make_sliced_flattened_matrix, make_prediction_mask, guess_matrix
 from .baseline import fit_many_baselines, data_to_normalized_residual, \
     normalized_residual_to_data
-import pandas as pd
-import numpy as np
-import pickle
-import gzip
 
-import logging
-from typing import Optional, List, Any
 logger = logging.getLogger(__name__)
-
-
-# from .linear_algebra import dense_schur
 
 
 # TODOs
@@ -69,7 +66,7 @@ class tsar:
                  noise_correction: bool = False,
                  prediction_variables_weight: Optional[float] = None,
                  use_svd_fit: bool = False,
-                 compute_gradients: bool = False,
+                 # compute_gradients: bool = False,
                  parallel_fit=True,
                  trust_contiguous_intervals=False):
 
@@ -127,11 +124,11 @@ class tsar:
         reordered_data = data[self.columns]
 
         self.use_svd_fit = use_svd_fit
-        self.compute_gradients = compute_gradients
+        # self.compute_gradients = compute_gradients
 
         self.parallel_fit = parallel_fit
 
-        self.prediction_cache = {}
+        #self.prediction_cache = {}
 
         # self.columns = self.data.columns
 
@@ -224,7 +221,7 @@ class tsar:
 
     @property
     def factors(self):
-        return pd.DataFrame(self.V.todense()[::self.lag, ::self.lag],
+        return pd.DataFrame(self._Sigma._V.todense()[::self.lag, ::self.lag],
                             index=self.columns).T
 
     @property
@@ -250,7 +247,7 @@ class tsar:
 
     @property
     def Sigma(self):
-        return self.V @ self.S @ self.V.T + self.D_matrix
+        return self._Sigma.todense()
 
     @property
     def large_matrix_multiindex(self):
@@ -303,12 +300,11 @@ class tsar:
                 gamma=1E-8, W=2,
                 parallel=self.parallel_fit)
 
-    def _build_matrices(self):
+    def _build_matrix(self):
 
-        self.V, self.S, self.S_inv, \
-            self.D_blocks, self.D_matrix = build_matrices(
-                self.s_times_v, self.S_lagged_covariances,
-                self.block_lagged_covariances)
+        self._Sigma = build_matrix(
+            self.s_times_v, self.S_lagged_covariances,
+            self.block_lagged_covariances)
 
     def _fit_low_rank_plus_block_diagonal_AR(
             self, data: pd.DataFrame):
@@ -358,53 +354,47 @@ class tsar:
         #     self.variables_weight,
         #     use_svd_fit=self.use_svd_fit)
 
-        self._build_matrices()
+        self._build_matrix()
 
     def _test_AR(self, test):
 
-        temp = self.compute_gradients
-        self.compute_gradients = False
+        #temp = self.compute_gradients
+        #self.compute_gradients = False
         self.AR_RMSE = self.test_AR(test)
-        self.compute_gradients = temp
+        #self.compute_gradients = temp
 
     def test_AR(self, test):
 
         test = test[self.columns]
 
-        _ = rmse_AR(self.V, self.S, self.S_inv,
-                    self.D_blocks,
-                    self.D_matrix,
-                    self.past_lag, self.future_lag,
-                    self._residual(test),
-                    self.available_data_lags_columns,
-                    self.ignore_prediction_columns,
-                    self.quadratic_regularization,
-                    do_gradients=self.compute_gradients)
+        AR_RMSE = rmse_AR(self._Sigma,
+                          self.past_lag, self.future_lag,
+                          self._residual(test),
+                          self.available_data_lags_columns,
+                          self.ignore_prediction_columns,
+                          self.quadratic_regularization,
+                          # do_gradients=self.compute_gradients
+                          )
 
-        if self.compute_gradients:
-            AR_RMSE, gradients = _
-        else:
-            AR_RMSE = _
+        # if self.compute_gradients:
+        #     AR_RMSE, gradients = _
+        # else:
+        #     AR_RMSE = _
 
         for col in AR_RMSE.columns:
             AR_RMSE[col] *= self.baseline_results_columns[col]['std']
 
-        return (AR_RMSE, gradients) if self.compute_gradients else AR_RMSE
+        # return (AR_RMSE, gradients) if self.compute_gradients else AR_RMSE
+        return AR_RMSE
+    # def anomaly_score(self, test):
+    #     test = test[self.columns]
 
-    def anomaly_score(self, test):
-        test = test[self.columns]
-        return anomaly_score(self.V, self.S, self.S_inv,
-                             self.D_blocks,
-                             self.D_matrix,
-                             self.past_lag, self.future_lag,
-                             self._residual(test))
+    #     raise NotImplementedError
 
-        # logger.debug('Computing autoregression RMSE.')
-        # self.AR_RMSE = pd.DataFrame(columns=self.columns)
-        # for lag in range(self.future_lag):
-        #     self.AR_RMSE.loc[i] = DataFrameRMSE(
-        #         self.test, self._invert_residual(
-        #             predicted_residuals_at_lags[i]))
+    #     return anomaly_score(self._Sigma,
+    #                          self.past_lag,
+    #                          self.future_lag,
+    #                          self._residual(test))
 
     def test_model(self, test):
         residual = self._residual(test)
@@ -444,16 +434,6 @@ class tsar:
             **self.baseline_results_columns[column.name],
             **self.baseline_params_columns[column.name])
 
-    # def predict_NEW(self, data: pd.DataFrame,
-    #                 prediction_time,
-    #                 return_sigmas=False):
-    #     check_multidimensional_time_series(data,
-    # self.frequency, self.columns)
-    #     # reorder columns
-    #     data = data[self.columns]
-    #
-    #     pass
-
     def predict_many(self,
                      data: pd.DataFrame):
 
@@ -478,12 +458,12 @@ class tsar:
         # gradients, total_num_predictions_made = \
         total_num_predictions_made = \
             guess_matrix(
-                residuals_flattened, self.V, self.S,
-                self.S_inv, self.D_blocks, self.D_matrix,
+                residuals_flattened, self._Sigma,
                 quadratic_regularization=self.quadratic_regularization,
                 prediction_mask=prediction_mask,
                 real_values=real_values,
-                do_gradients=False)
+                # do_gradients=False
+            )
 
         res = pd.DataFrame(data=residuals_flattened,
                            columns=self.large_matrix_multiindex.reorder_levels(
@@ -499,6 +479,10 @@ class tsar:
                 prediction_time:
                 Optional[pd.Timestamp] = None,
                 return_sigmas=False) -> pd.DataFrame:
+
+        if return_sigmas:
+            raise NotImplementedError
+
         check_multidimensional_time_series(
             data,
             self.frequency, self.columns,
@@ -531,7 +515,7 @@ class tsar:
         residual_vectorized = residual_slice.values.flatten(order='F')
 
         # TODO move up
-        self.D_blocks_indexes = make_block_indexes(self.D_blocks)
+        # self.D_blocks_indexes = make_block_indexes(self.D_blocks)
         known_mask = ~np.isnan(residual_vectorized)
 
         # res = dense_schur(self.Sigma, known_mask=known_mask,
@@ -541,21 +525,26 @@ class tsar:
         #                   quadratic_regularization is not None else
         #                   self.quadratic_regularization)
 
-        res = symm_low_rank_plus_block_diag_schur(
-            self.V,
-            self.S,
-            self.S_inv,
-            self.D_blocks,
-            self.D_blocks_indexes,
-            self.D_matrix,
-            known_mask=known_mask,
-            known_matrix=np.matrix(
-                residual_vectorized[known_mask]),
-            prediction_mask=~known_mask,
-            real_result=None,
-            return_conditional_covariance=return_sigmas,
-            quadratic_regularization=self.quadratic_regularization,
-            prediction_cache=self.prediction_cache)
+        res = self._Sigma.regularized_schur(
+            left_mask=~known_mask,
+            right_mask=known_mask,
+            value=np.array(residual_vectorized[known_mask]),
+            lambd=self.quadratic_regularization)
+
+        # self.V,
+        # self.S,
+        # self.S_inv,
+        # self.D_blocks,
+        # self.D_blocks_indexes,
+        # self.D_matrix,
+        # known_mask = known_mask,
+        # known_matrix = np.matrix(
+        #     residual_vectorized[known_mask]),
+        # prediction_mask = ~known_mask,
+        # real_result = None,
+        # return_conditional_covariance = return_sigmas,
+        # quadratic_regularization = self.quadratic_regularization,
+        # prediction_cache = self.prediction_cache)
 
         # res = symm_low_rank_plus_block_diag_schur(
         #     V=self.V,
@@ -647,5 +636,5 @@ class tsar:
 def load_model(model_compressed):
     model = tsar.__new__(tsar)
     model.__dict__.update(pickle.loads(gzip.decompress(model_compressed)))
-    model._build_matrices()
+    model._build_matrix()
     return model
