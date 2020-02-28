@@ -18,7 +18,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 from .non_par_baseline import fit_baseline as non_par_fit_baseline, \
     data_to_residual as non_par_data_to_residual, \
     residual_to_data as non_par_residual_to_data
-from tsar.linear_algebra import symm_low_rank_plus_block_diag_schur, \
+from .linear_algebra import symm_low_rank_plus_block_diag_schur, \
     make_block_indexes
 from .utils import DataFrameRMSE, check_multidimensional_time_series,\
     sanitize_baseline_params
@@ -302,63 +302,6 @@ class tsar:
                 train_test_ratio=self.train_test_split,
                 gamma=1E-8, W=2,
                 parallel=self.parallel_fit)
-
-    # def _fit_baselines(self,
-    #                    data: pd.DataFrame,
-    #                    traintest: bool):
-    #
-    #     logger.info('Fitting baselines.')
-    #
-    #     if traintest and self.return_performance_statistics:
-    #         #logger.debug('Computing baseline RMSE.')
-    #         self.baseline_RMSE = pd.Series(index=self.columns)
-    #
-    #     # TODO parallelize
-    #     for col in self.columns:
-    #         logger.info('Fitting baseline on column %s.' % col)
-    #
-    #         col_data = data[col].dropna()
-    #
-    #         if traintest:
-    #             train = col_data.iloc[
-    #                 :int(len(col_data) * self.train_test_split)]
-    #             test = col_data.iloc[
-    #                 int(len(col_data) * self.train_test_split):]
-    #
-    #         else:
-    #             train, test = col_data, None
-    #
-    #         logger.info(f'\ttraining on {len(train)} points from ' +
-    #                     f'{train.index[0]} to {train.index[-1]}')
-    #
-    #         if test is not None:
-    #             logger.info(f'\ttesting on {len(test)} points from ' +
-    #                         f'{test.index[0]} to {test.index[-1]}')
-    #
-    #         if not self.baseline_params_columns[col]['non_par_baseline']:
-    #
-    #             self.baseline_results_columns[col]['std'], \
-    #                 self.baseline_params_columns[col]['daily_harmonics'], \
-    #                 self.baseline_params_columns[col]['weekly_harmonics'], \
-    #                 self.baseline_params_columns[col]['annual_harmonics'], \
-    #                 self.baseline_params_columns[col]['trend'],\
-    #        self.baseline_results_columns[col]['baseline_fit_result'], \
-    #                 optimal_rmse = fit_baseline(
-    #                 train, test,
-    #                 **self.baseline_params_columns[col])
-    #         else:
-    #
-    #             self.baseline_results_columns[col]['std'], \
-    #                 self.baseline_params_columns[col]['lambdas'],\
-    #                 self.baseline_results_columns[col]['theta'], \
-    #                 optimal_rmse = non_par_fit_baseline(
-    #                 train, test,
-    #                 **self.baseline_params_columns[col])
-    #
-    #         if traintest and self.return_performance_statistics:
-    #             logger.info(f'baseline prediction RMSE: {optimal_rmse}')
-    #             logger.info(f'test data std.dev.: {test.std()}')
-    #             self.baseline_RMSE[col] = optimal_rmse
 
     def _build_matrices(self):
 

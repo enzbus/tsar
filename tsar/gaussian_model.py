@@ -37,19 +37,19 @@ logger = logging.getLogger(__name__)
 # @nb.njit()
 def check_toeplitz(square_matrix):
     m, _ = square_matrix.shape
-    for i in range(m-1):
-        for j in range(m-1):
-            assert np.isclose(square_matrix[i, j], square_matrix[i+1, j+1])
+    for i in range(m - 1):
+        for j in range(m - 1):
+            assert np.isclose(square_matrix[i, j], square_matrix[i + 1, j + 1])
 
 
 # @nb.njit()
 def invert_build_dense_covariance_matrix(cov, lag):
-    M = cov.shape[0]//lag
+    M = cov.shape[0] // lag
     assert np.all(np.isclose(cov, cov.T))
     lagged_covariances = np.empty((M, M, lag))
     for i in range(M):
         for j in range(M):
-            toeplitz_block = cov[i*lag:(i+1)*lag, j*lag:(j+1)*lag]
+            toeplitz_block = cov[i * lag:(i + 1) * lag, j * lag:(j + 1) * lag]
             check_toeplitz(toeplitz_block)
             lagged_covariances[i, j, :] = toeplitz_block[0, :]
     return lagged_covariances
@@ -136,22 +136,22 @@ def make_V(v: np.ndarray, lag: int) -> sp.csc_matrix:
 # def fit_low_rank_block_diagonal(Sigma_hat, lagged_covs, R, lag)
 
 # THIS IS NOT USED
-def fit_low_rank_block_diagonal(lagged_covs, Sigma_hat, R, P, F):
-    # lagged_covs = make_lagged_covariances(normalized_residual, lag=P+F)
-    # Sigma_hat = build_dense_covariance_matrix(lagged_covs)
-    v = compute_principal_directions(R, lagged_covs)
-    V = make_V(v, lag=P+F)
-    logger.info('Computing Sigma_lr')
-    Sigma_lr = V @ Sigma_hat @ V.T
-    logger.info('Computing D.')
-    blocks = []
-    for m in range(lagged_covs.shape[0]):
-        only_low_rank = V[:, m*(P+F):(m+1)*(P+F)].T @ Sigma_lr \
-            @ V[:, m*(P+F):(m+1)*(P+F)]
-        original = Sigma_hat[m*(P+F):(m+1)*(P+F), m*(P+F):(m+1)*(P+F)]
-        blocks.append(original-only_low_rank)
-    D = sp.block_diag(blocks)
-    return Sigma_lr, V, blocks, D
+# def fit_low_rank_block_diagonal(lagged_covs, Sigma_hat, R, P, F):
+#     # lagged_covs = make_lagged_covariances(normalized_residual, lag=P+F)
+#     # Sigma_hat = build_dense_covariance_matrix(lagged_covs)
+#     v = compute_principal_directions(R, lagged_covs)
+#     V = make_V(v, lag=P+F)
+#     logger.info('Computing Sigma_lr')
+#     Sigma_lr = V @ Sigma_hat @ V.T
+#     logger.info('Computing D.')
+#     blocks = []
+#     for m in range(lagged_covs.shape[0]):
+#         only_low_rank = V[:, m*(P+F):(m+1)*(P+F)].T @ Sigma_lr \
+#             @ V[:, m*(P+F):(m+1)*(P+F)]
+#         original = Sigma_hat[m*(P+F):(m+1)*(P+F), m*(P+F):(m+1)*(P+F)]
+#         blocks.append(original-only_low_rank)
+#     D = sp.block_diag(blocks)
+#     return Sigma_lr, V, blocks, D
 
 
 def _fit_low_rank_plus_block_diagonal_ar_using_eigendecomp(
@@ -170,7 +170,7 @@ def _fit_low_rank_plus_block_diagonal_ar_using_eigendecomp(
             data.values, lag=lag)
         M = data.shape[1]
         workspace['block_lagged_covs'] =\
-            [workspace['lagged_covs'][m:m+1, m:m+1, :] for m in range(M)]
+            [workspace['lagged_covs'][m:m + 1, m:m + 1, :] for m in range(M)]
 
     if 'Sigma_hat'not in workspace:
         workspace['Sigma_hat'] = \
@@ -205,58 +205,58 @@ def _fit_low_rank_plus_block_diagonal_ar_using_eigendecomp(
 # THESE ARE NOT USED:
 
 
-def compute_sigmas(residual):
-    logger.info('Computing the sigmas.')
-    sigmas = np.sqrt(np.nanmean(residual**2, axis=0))
-    sigmas[np.isnan(sigmas)] = 1.
-    sigmas[sigmas == 0.] = 1.
-    return sigmas
+# def compute_sigmas(residual):
+#     logger.info('Computing the sigmas.')
+#     sigmas = np.sqrt(np.nanmean(residual**2, axis=0))
+#     sigmas[np.isnan(sigmas)] = 1.
+#     sigmas[sigmas == 0.] = 1.
+#     return sigmas
 
 
-def fit_gaussian_process(residual,
-                         P: int,
-                         F: int,
-                         R: Optional[int] = None,
-                         λ: Optional[float] = None,
-                         train_test_ratio=2/3,
-                         W=2):
+# def fit_gaussian_process(residual,
+#                          P: int,
+#                          F: int,
+#                          R: Optional[int] = None,
+#                          λ: Optional[float] = None,
+#                          train_test_ratio=2 / 3,
+#                          W=2):
 
-    # assert type(residual) is pd.DataFrame
-    T, M = residual.shape
+#     # assert type(residual) is pd.DataFrame
+#     T, M = residual.shape
 
-    if (R is None) or (λ is None):
+#     if (R is None) or (λ is None):
 
-        train = residual[:int(T * train_test_ratio)]
-        test = residual[int(T * train_test_ratio):]
+#         train = residual[:int(T * train_test_ratio)]
+#         test = residual[int(T * train_test_ratio):]
 
-        logger.info(f"Tuning hyper-parameters with {len(train)} train and "
-                    f"{len(test)} test points")
+#         logger.info(f"Tuning hyper-parameters with {len(train)} train and "
+#                     f"{len(test)} test points")
 
-        sigmas = compute_sigmas(train)
-        normalized_train = train/sigmas
-        normalized_test = test/sigmas
-        lagged_covs = make_lagged_covariances(normalized_train, lag=P+F)
-        Sigma_hat = build_dense_covariance_matrix(lagged_covs)
+#         sigmas = compute_sigmas(train)
+#         normalized_train = train / sigmas
+#         normalized_test = test / sigmas
+#         lagged_covs = make_lagged_covariances(normalized_train, lag=P + F)
+#         Sigma_hat = build_dense_covariance_matrix(lagged_covs)
 
-        @functools.lru_cache()
-        def _fit(R):
-            return fit_low_rank_block_diagonal(lagged_covs, Sigma_hat, R, P, F)
+#         @functools.lru_cache()
+#         def _fit(R):
+# return fit_low_rank_block_diagonal(lagged_covs, Sigma_hat, R, P, F)
 
-        def _evaluate(model, test, λ):
-            pass
+#         def _evaluate(model, test, λ):
+#             pass
 
-        # TODO finish
+#         # TODO finish
 
-    sigmas = compute_sigmas(residual)
-    normalized_residual = residual/sigmas
+#     sigmas = compute_sigmas(residual)
+#     normalized_residual = residual / sigmas
 
-    lagged_covs = make_lagged_covariances(normalized_residual, lag=P+F)
-    Sigma_hat = build_dense_covariance_matrix(lagged_covs)
-    Sigma_lr, V, D = fit_low_rank_block_diagonal(lagged_covs,
-                                                 Sigma_hat,
-                                                 R, P, F)
+#     lagged_covs = make_lagged_covariances(normalized_residual, lag=P + F)
+#     Sigma_hat = build_dense_covariance_matrix(lagged_covs)
+#     Sigma_lr, V, D = fit_low_rank_block_diagonal(lagged_covs,
+#                                                  Sigma_hat,
+#                                                  R, P, F)
 
-    return R, λ, sigmas, Sigma_lr, V, D
+#     return R, λ, sigmas, Sigma_lr, V, D
 
 
 # low_rank_plus_block_diagonal = \

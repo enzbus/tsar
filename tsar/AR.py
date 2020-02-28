@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-from tsar.greedy_grid_search import greedy_grid_search
+from .greedy_grid_search import greedy_grid_search
 from typing import List  # , Any
 import logging
 
@@ -25,73 +25,17 @@ import numba as nb
 import scipy.sparse as sp
 # import scipy.sparse.linalg as spl
 
-from tsar.utils import DataFrameRMSE
+from .utils import DataFrameRMSE
 # from tsar.new_linear_algebra import symm_low_rank_plus_block_diag_schur
-from tsar.linear_algebra import iterative_denoised_svd, \
+from .linear_algebra import iterative_denoised_svd, \
     symm_low_rank_plus_block_diag_schur, make_block_indexes
 
-from tsar.gaussian_model import \
+from .gaussian_model import \
     _fit_low_rank_plus_block_diagonal_ar_using_eigendecomp
 
 logger = logging.getLogger(__name__)
 
 HOW_MANY_QUAD_REG_RANGE_POINTS = 50
-
-# from .utils import check_series
-
-
-# from .base_autoregressor import BaseAutoregressor
-
-
-# @nb.jit(nopython=True)
-# def make_Sigma_scalar_AR(lagged_covariances: List[float]):
-#     lag = len(lagged_covariances)
-#     Sigma = np.empty((lag, lag))
-#     for i in range(lag):
-#         for k in range(-i, lag - i):
-#             Sigma[i, k + i] = lagged_covariances[
-#                 k] if k > 0 else lagged_covariances[-k]
-#     # assert np.allclose((Sigma - Sigma.T), 0)
-#     return Sigma
-#
-#
-# @nb.jit(nopython=True)
-# def lag_covariance(array: np.ndarray, lag: int):
-#     # shifted = np.shift(series, lag)
-#     multiplied = array[lag:] * array[:len(array) - lag]
-#     return np.nanmean(multiplied)  # [~np.isnan(multiplied)])
-#     # cov = pd.concat([series, series.shift(lag)], axis=1).cov()
-#     # mycov = cov.iloc[1, 0]
-#     # assert np.isclose(newcov, mycov)
-#     # return newcov
-
-
-# @nb.jit()  # nopython=True)
-# def fit_AR(
-#         train_array: np.ndarray,
-#         cached_lag_covariances: List[float],
-#         lag: int):
-#     logger.info('Train array has mean %f and std %f' % (np.mean(train_array),
-#                                                         np.std(train_array)))
-#
-#     lagged_covariances = np.empty(lag)
-#     lagged_covariances[:len(cached_lag_covariances)] = \
-#         cached_lag_covariances[:lag]
-#     for i in range(len(cached_lag_covariances), lag):
-#         logger.debug('computing covariance at lag %d' % i)
-#         # cov = pd.concat([self.train,
-#         #                  self.train.shift(i)], axis=1).cov()
-#         # mycov = cov.iloc[1, 0]
-#         mycov = lag_covariance(train_array, lag=i)
-#         if np.isnan(mycov):
-#             logger.warning(
-#                 'Covariance at lag %dis NaN.' %
-#                 (i))
-#             mycov = 0.
-#         logger.debug('result is %f' % mycov)
-#         lagged_covariances[i] = mycov
-#     Sigma = make_Sigma_scalar_AR(lagged_covariances)
-#     return lagged_covariances, Sigma
 
 
 @nb.jit(nopython=True)
@@ -102,28 +46,6 @@ def make_sliced_flattened_matrix(data_table: np.ndarray, lag: int):
         data_slice = data_table[i:i + lag]
         result[i, :] = np.ravel(data_slice.T)  # , order='F')
     return result
-
-
-# def fit_per_column_AR(train_table: pd.DataFrame,
-#                       cached_lag_covariances: List[float], lag: int):
-#     logger.info('Building AR models for %d columns, with %d samples each' %
-#                 (train_table.shape[1], train_table.shape[0])
-#                 )
-#
-#     Sigmas = []
-#     # TODO parallelize
-#     for i in range(train_table.shape[1]):
-#         logger.debug(
-#             'Building AR model for column %s' %
-#             train_table.columns[i])
-#         cached_lag_covariances[i], Sigma = fit_AR(
-#             train_table.iloc[:, i].values, cached_lag_covariances[i], lag)
-#         if not cached_lag_covariances[i][0]:
-#             logger.warning(
-# f'AR model for column {train_table.columns[i]} is null!')
-#             Sigma = np.eye(lag)
-#         Sigmas.append(Sigma)
-#     return Sigmas
 
 
 def make_V(v: np.ndarray, lag: int) -> sp.csc_matrix:
@@ -265,38 +187,7 @@ def _fit_low_rank_plus_block_diagonal_ar_using_svd(
         u, s, v = iterative_denoised_svd(
             train * variables_weight, rank, noise_correction)
         v /= variables_weight.values
-        # workspace['ranks'][rank]['svd'] = u, s, v
 
-        # if rank not in cached_svd:
-        #     cached_svd[rank] = iterative_denoised_svd(train, rank)
-        # u, s, v = cached_svd[rank]
-        # u, s, v = iterative_denoised_svd(
-        #     train * variables_weight, rank, noise_correction)
-        # v /= variables_weight.values
-
-    # if rank not in cached_factor_lag_covariances:
-    #     cached_factor_lag_covariances[rank] = [[] for i in range(rank)]
-
-    # # if v.shape[0] == 0:
-    # #     V = sp.csc_matrix((train.shape[1] * lag, 0))
-    # # else:
-    # #     V = make_V(np.diag(s) @ v, lag)
-
-    # logger.debug('Building S')
-    # S = build_S(u, lag)
-    # logger.debug('Building S^-1')
-    # S_inv = np.linalg.inv(S)
-
-    # D_blocks = []
-    # cur = 0
-    # for i in range(len(scalar_Sigmas)):
-    #     size = scalar_Sigmas[i].shape[0]
-    #     logger.debug('correcting block of size %d' % size)
-    #     D_blocks.append(scalar_Sigmas[i] -
-    #                     V[cur: cur + size] @ S @ V[cur: cur + size].T)
-    #     cur += size
-
-    # D_matrix = sp.block_diag(D_blocks).todense()
     if 's_times_v' not in workspace['ranks'][rank]:
         workspace['ranks'][rank]['s_times_v'] = np.diag(s) @ v
     if 'factor_lagged_covs' not in workspace['ranks'][rank]:
@@ -484,17 +375,6 @@ def anomaly_score(V, S, S_inv, D_blocks, D_matrix,
                  do_anomaly_score=True)
     return test_flattened
 
-
-# @dataclass
-# class LowRankBlockDiagonal:
-#     """Class for holding a low-rank plus block-diagonal."""
-#
-#     V: np.matrix
-#     S: np.matrix
-#     S_inv: np.matrix
-#     D_blocks
-#     D_matrix: np.matrix
-#     D_inv: np. matrix
 
 def fit_low_rank_plus_block_diagonal_AR(data,
                                         rank: int,
@@ -695,132 +575,3 @@ def fit_low_rank_plus_block_diagonal_AR_old(train: pd.DataFrame,
 
     return past_lag, rank, quadratic_regularization, \
         s_times_v, S_lagged_covariances, block_lagged_covariances
-
-    # def dataframe_to_vector
-
-    # def fit_AR(vector, cached_lag_covariances, lag):
-    # 	cached_lag_covariances, Sigma = \
-    # 	       update_covariance_Sigma(train_array=vector,
-    # 	                               old_lag_covariances=cached_lag_covariances,
-    # 	                               lag=lag)
-
-    # class ScalarAutoregressor(BaseAutoregressor):
-
-    #     def __init__(self,
-    #                  train,
-    #                  future_lag,
-    #                  past_lag):
-
-    #         check_series(train)
-    #         self.train = train
-    #         assert np.isclose(self.train.mean(), 0., atol=1e-6)
-    #         self.future_lag = future_lag
-    #         self.past_lag = past_lag
-    #         self.lagged_covariances = np.empty(0)
-    #         self.N = 1
-
-    #         self._fit()
-
-    #     # def _fit(self):
-    #     #     self._fit_Sigma()
-    #     #     self._make_Sigma()
-
-    #     # @property
-    #     # def lag(self):
-    #     #     return self.future_lag + self.past_lag
-
-    #     def _fit(self):
-    #         self.lagged_covariances, self.Sigma = \
-    #             update_covariance_Sigma(train_array=self.train.values,
-    #                                     old_lag_covariances=self.lagged_covariances,
-    #                                     lag=self.lag)
-    #         # old_lag_covariances = self.lagged_covariances
-    #         # self.lagged_covariances = np.empty(self.lag)
-    #         # self.lagged_covariances[
-    #         #     :len(old_lag_covariances)] = old_lag_covariances
-    #         # for i in range(len(old_lag_covariances), self.lag):
-    #         #     print('computing covariance lag %d' % i)
-    #         #     # cov = pd.concat([self.train,
-    #         #     #                  self.train.shift(i)], axis=1).cov()
-    #         #     # mycov = cov.iloc[1, 0]
-    #         #     mycov = lag_covariance(self.train.values, lag=i)
-    #         #     if np.isnan(mycov):
-    #         #         logger.warning(
-    #         #             'Covariance at lag %d for column %s is NaN.' %
-    #         #             (i, self.train.name))
-    #         #         mycov = 0.
-    #         #     self.lagged_covariances[i] = mycov
-    #         # self.Sigma = make_Sigma_scalar_AR(self.lagged_covariances)
-
-    #     # def _make_Sigma(self):
-    #     #     self.Sigma = make_Sigma_scalar_AR(
-    # np.array(self.lagged_covariances))
-
-    #     def test_predict(self, test):
-    #         check_series(test)
-    #         return super().test_predict(test)
-
-    # def test_predict(self, test):
-    #     check_series(test)
-
-    #     test_concatenated = pd.concat([
-    #         test.shift(-i)
-    #         for i in range(self.lag)], axis=1)
-
-    #     null_mask = pd.Series(False,
-    #                           index=test_concatenated.columns)
-    #     null_mask[self.past_lag:] = True
-
-    #     to_guess = pd.DataFrame(test_concatenated, copy=True)
-    #     to_guess.loc[:, null_mask] = np.nan
-    #     guessed = guess_matrix(to_guess, self.Sigma).iloc[
-    #         :, self.past_lag:]
-    #     assert guessed.shape[1] == self.future_lag
-    #     guessed_at_lag = []
-    #     for i in range(self.future_lag):
-    #         to_append = guessed.iloc[:, i:
-    #                                  (i + 1)].shift(i + self.past_lag)
-    #         to_append.columns = [el + '_lag_%d' % (i + 1) for el in
-    #                              to_append.columns]
-    #         guessed_at_lag.append(to_append)
-    #     return guessed_at_lag
-
-    # def test_RMSE(self, test):
-    #     guessed_at_lags = self.test_predict(test)
-    #     all_errors = np.zeros(0)
-    #     for i, guessed in enumerate(guessed_at_lags):
-    #         errors = (guessed_at_lags[i].iloc[:, 0] -
-    #                   test).dropna().values
-    #         print('RMSE at lag %d = %.2f' % (i + 1,
-    #                                          np.sqrt(np.mean(errors**2))))
-    #         all_errors = np.concatenate([all_errors, errors])
-    #     return np.sqrt(np.mean(all_errors**2))
-
-    # def autotune_scalar_autoregressor(train,
-    #                                   test,
-    #                                   future_lag,
-    #                                   max_past_lag=100):
-
-    #     print(
-    # 'autotuning scalar autoregressor on %d train and %d test points' %
-    #           (len(train), len(test)))
-
-    #     past_lag = np.arange(1, max_past_lag + 1)
-
-    #     model = ScalarAutoregressor(train,
-    #                                 future_lag,
-    #                                 1)
-
-    #     def test_RMSE(past_lag):
-    #         model.past_lag = past_lag
-    #         model._fit()
-    #         return model.test_RMSE(test)
-
-    #     res = greedy_grid_search(test_RMSE,
-    #                              [past_lag],
-    #                              num_steps=1)
-
-    #     print('optimal params: %s' % res)
-    #     print('test std. dev.: %.2f' % test.std())
-
-    #     return res
