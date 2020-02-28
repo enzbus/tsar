@@ -208,19 +208,10 @@ def _fit_low_rank_plus_block_diagonal_ar_using_svd(
 
 
 def guess_matrix(matrix_with_na: np.ndarray, Sigma,
-                 # D_inv,  # min_rows=5,
                  quadratic_regularization: float,
                  prediction_mask, real_values,
                  max_eval=3,
-                 # do_anomaly_score=False,
-                 # do_gradients=False
                  ):
-
-    # if do_gradients:
-    #     raise NotImplementedError
-
-    # if do_anomaly_score:
-    #     raise NotImplementedError
 
     logger.info('guessing matrix')
     # matrix_with_na = pd.DataFrame(matrix_with_na)
@@ -233,70 +224,37 @@ def guess_matrix(matrix_with_na: np.ndarray, Sigma,
 
     ranked_masks = ranked_masks_counts.index
 
-    # if do_gradients:
-    #     gradients = np.empty((matrix_with_na.shape[1],
-    #                           min(len(ranked_masks), max_eval)))
-    #     gradients[:, :] = np.nan
-
     total_num_predictions_made = 0
-    prediction_cache = {}
+
     for i in range(len(ranked_masks))[:]:
 
         logger.info('null mask %d' % i)
-        mask_indexes = (full_null_mask ==
-                        ranked_masks[i]).all(1)
-        # if mask_indexes.sum() <= min_rows:
-        #     break
+        mask_indexes = (full_null_mask == ranked_masks[i]).all(1)
+
         logger.info('there are %d rows' % mask_indexes.sum())
         total_num_predictions_made += mask_indexes.sum()
 
         # TODO fix
-        # D_blocks_indexes = make_block_indexes(D_blocks)
         known_mask = ~np.array(ranked_masks[i])
-        known_matrix = matrix_with_na[mask_indexes].T[known_mask].T
-        real_result = real_values.values[mask_indexes].T[prediction_mask].T
+        #known_matrix = matrix_with_na[mask_indexes].T[known_mask].T
 
-        result = np.zeros((known_matrix.shape[0], sum(prediction_mask)))
+        #result = np.zeros((known_matrix.shape[0], sum(prediction_mask)))
 
-        for i in range(known_matrix.shape[0]):
-            logger.info('solving reg. schur')
-            result[i] = Sigma.regularized_schur(
+        # for i in range(known_matrix.shape[0]):
+        prediction_indexes = np.arange(matrix_with_na.shape[0])[mask_indexes]
+        for i in prediction_indexes:
+            logger.debug('solving reg. schur')
+            matrix_with_na[i, prediction_mask] = \
+                Sigma.regularized_schur(
                 left_mask=prediction_mask,
                 right_mask=known_mask,
-                value=np.array(known_matrix[i]),
+                value=matrix_with_na[i, known_mask],
                 lambd=quadratic_regularization)
 
-        # _ = \
-        #     symm_low_rank_plus_block_diag_schur(
-        #         V,
-        #         S,
-        #         S_inv,
-        #         D_blocks,
-        #         D_blocks_indexes,
-        #         D_matrix,
-        #         known_mask=known_mask,
-        #         known_matrix=known_matrix,
-        #         prediction_mask=prediction_mask,
-        #         real_result=real_result,
-        #         return_conditional_covariance=False,
-        #         quadratic_regularization=quadratic_regularization,
-        #         do_anomaly_score=do_anomaly_score,
-        #         return_gradient=do_gradients,
-        #         prediction_cache=prediction_cache)
-
-        # if do_gradients:
-        #     result, gradient=_
-        #     gradients[known_mask, i]=gradient
-        # else:
-        #     result=_
-
-        # if do_anomaly_score:
-        #     return result
-
         logger.debug('Assigning conditional expectation to matrix.')
-        mat_slice = matrix_with_na[mask_indexes]
-        mat_slice[:, prediction_mask] = result
-        matrix_with_na[mask_indexes] = mat_slice
+        #mat_slice = matrix_with_na[mask_indexes]
+        #mat_slice[:, prediction_mask] = result
+        #matrix_with_na[mask_indexes] = mat_slice
     # return (gradients, total_num_predictions_made) if do_gradients else \
     return total_num_predictions_made
 
@@ -389,16 +347,6 @@ def rmse_AR(Sigma,
     return my_RMSE
     # assert (not rmses.isnull().sum())
     # assert False
-
-
-# def anomaly_score(Sigma,
-#                   past_lag, future_lag, test: pd.DataFrame):
-
-#     lag = past_lag + future_lag
-#     test_flattened = make_sliced_flattened_matrix(test.values, lag)
-#     guess_matrix(test_flattened, Sigma,
-#                  do_anomaly_score=True)
-#     return test_flattened
 
 
 def fit_low_rank_plus_block_diagonal_AR(data,
