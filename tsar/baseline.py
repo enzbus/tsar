@@ -48,7 +48,7 @@ def featurize_index_for_baseline(seconds: np.ndarray,
 
 
 @nb.jit(nopython=True)
-def fit_seasonal_baseline(X, y, gamma=1E-8):
+def fit_seasonal_baseline(X, y, gamma=1E-5):
     num_coeff = X.shape[1]
     regularizer = np.eye(num_coeff)
     if num_coeff % 2:

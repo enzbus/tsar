@@ -221,7 +221,7 @@ class tsar:
 
     @property
     def factors(self):
-        return pd.DataFrame(self._Sigma._V.todense()[::self.lag, ::self.lag],
+        return pd.DataFrame(self._Sigma._V[::self.lag, ::self.lag].T,
                             index=self.columns).T
 
     @property
@@ -500,7 +500,7 @@ class tsar:
 
         if self.trust_contiguous_intervals:
 
-            i, = pd.np.where(prediction_time == data.index)
+            i, = np.where(prediction_time == data.index)
             prediction_index = \
                 data.index[i[0] - self.past_lag:i[0] + self.future_lag]
 

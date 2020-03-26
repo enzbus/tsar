@@ -25,11 +25,15 @@ def min_key(d):
 
 
 def greedy_grid_search(function,
-                       parameter_indexables, num_steps=1):
+                       parameter_indexables,
+                       num_steps=1,
+                       logger_info=False):
     """Evaluates function on combinations from
     the parameter_indexables list. Returns lowest
     value obtained from greedy grid search, starting
     from the first parameters in the indexables."""
+
+    myprint = logger.info if logger_info else logger.debug
 
     results = {}
 
@@ -41,9 +45,9 @@ def greedy_grid_search(function,
             params = [param[current_counter[i]]
                       for i, param in enumerate(parameter_indexables)]
 
-            logger.debug('evaluating function at %s' % params)
+            myprint('evaluating function at %s' % params)
             value = function(*params)
-            logger.debug('function value = %f' % value)
+            myprint('function value = %f' % value)
             if np.isnan(value):
                 raise ValueError('Greedy grid search found value nan.')
             results[tuple(current_counter)] = value
@@ -74,10 +78,10 @@ def greedy_grid_search(function,
         current_counter = list(min_key(results))
 
         if tuple(old_current_counter) == tuple(current_counter):
-            logger.debug('optimal function value = %f' %
-                         results[tuple(current_counter)])
-            logger.debug('optimal function parameters = %s' %
-                         str(tuple(current_counter)))
+            myprint('optimal function value = %f' %
+                    results[tuple(current_counter)])
+            myprint('optimal function parameters = %s' %
+                    str(tuple(current_counter)))
             return results[tuple(current_counter)], \
                 [param[current_counter[i]]
                  for i, param in
